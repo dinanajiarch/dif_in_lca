@@ -1,0 +1,44 @@
+TITLE:
+Complex, Ideal Separation
+MONTECARLO:
+NAMES = u1-u6;
+    	GENERATE = u1-u6(1);
+    	CATEGORICAL = u1-u6;
+    	GENCLASSES = c(4);
+    	CLASSES = c(4);
+    	NOBSERVATIONS = 500; 
+    	SEED = 1495;
+    	NREPS = 1;
+      REPSAVE = all;
+      SAVE= p1m1_N500_C4_even_simple_ideal_results*.csv;
+MODEL POPULATION:
+%OVERALL%
+    
+    [c#1*0];
+    [c#2*0];
+    [c#3*0];
+  	
+     %C#1%
+
+  	 [u1$1*-2 u2$1*-2 u3$1*-2
+  	 u4$1*-2 u5$1*-2 u6$1*-2];
+
+     %C#2%
+
+  	 [u1$1*-2 u2$1*-2 u3$1*-2
+  	 u4$1*2 u5$1*2 u6$1*2];
+  	
+     %C#3%
+
+  	 [u1$1*2 u2$1*2 u3$1*2
+  	 u4$1*-2 u5$1*-2 u6$1*-2];
+  
+     %C#4%
+
+  	 [u1$1*2 u2$1*2 u3$1*2
+  	 u4$1*2 u5$1*2 u6$1*2];
+ANALYSIS:
+TYPE = MIXTURE;
+     STARTS = 200 100;
+OUTPUT:
+tech9 tech11;

@@ -1,0 +1,1620 @@
+valid_reps <- function(parent_dir) {# Get a list of all subdirectories within the parent directory
+subfolders <- list.dirs(parent_dir, full.names = TRUE, recursive = FALSE)
+subsubfolders <- list.dirs(subfolders, full.names = TRUE, recursive = FALSE)
+subsubsubfolders <- list.dirs(subsubfolders, full.names = TRUE, recursive = FALSE)
+
+# If subsubsubfolders is empty, fallback to subsubfolders
+final_folders <- if (length(subsubsubfolders) == 0) subsubfolders else subsubsubfolders
+
+# Get all results.csv files from the appropriate folder level
+files <- unlist(lapply(final_folders, function(folder) {
+  list.files(folder, pattern = "*results.csv", full.names = TRUE)
+}))
+
+
+# Extract BIC, aBIC and VLMR from each replication
+process_file <- function(file) {
+
+  # Read the file as a dataframe
+  data <- read.csv(file, sep = " ", header = FALSE)
+  
+  # Identify rows with a single numeric value (section identifiers)
+  section_indices <- which(apply(data, 1, function(row) {
+    values <- na.omit(row)
+    length(values) == 1 &&
+      grepl("^\\d+$", as.character(values)) &&
+      as.numeric(values) != 0
+  }))
+  
+  # Initialize a list to store the extracted values
+  extracted_values <- list()
+  
+  # Loop through each section and extract data
+  for (i in seq_along(section_indices)) {
+
+    start <- section_indices[i] + 1  # Start after the section identifier
+    end <- if (i < length(section_indices)) section_indices[i + 1] - 1 else nrow(data)
+    
+    # Extract the section data
+    section_data <- data[start:end, ] 
+    
+    # Extract the last three rows of the section
+    last_three_rows <- tail(section_data, 3)
+
+    # Detect the first row (within these last three rows) where the first value is a whole number > 1 and not negative
+    row_whole_number_index <- which(last_three_rows[, 1] %% 1 == 0 & last_three_rows[, 1] > 1)[1]
+    
+    # Check if the index is valid
+  if (is.na(row_whole_number_index)) {
+    cat("❌ Skipping Replication", data[section_indices[i], 1],
+        "in file:", basename(file), "\n")
+    next
+  }
+    # Adjust index to match original section_data
+    if (!is.na(row_whole_number_index)) {
+      row_whole_number_index <- nrow(section_data) - 3 + row_whole_number_index
+    }
+
+    # Capture all rows after and including the detected row
+    cleaned_rows <- section_data[seq(row_whole_number_index, nrow(section_data)), , drop = FALSE]
+    
+    extracted <- c(
+      BIC = cleaned_rows[1,4], # BIC
+      aBIC = cleaned_rows[1,5], # aBIC
+      VLMR = ifelse(is.na(cleaned_rows[2,7]), cleaned_rows[2,1], cleaned_rows[2,7]),  # If VLMR is NA, use (2,1) instead
+      par = cleaned_rows[1,1],
+      LL = cleaned_rows[1,2]
+    )
+    
+    # Store extracted values with a section identifier
+    section_name <- paste0("Replication_", data[section_indices[i], 1])
+    extracted_values[[section_name]] <- extracted
+  }
+  
+  return(extracted_values)
+}
+
+
+# Process all files and store results in a named list
+data_list <- lapply(files, process_file)
+names(data_list) <- basename(files)
+
+# Combine extracted values into a single data frame
+combine_extracted_values <- function(data_list) {
+  combined_data <- do.call(rbind, lapply(names(data_list), function(file_name) {
+    file_data <- data_list[[file_name]]
+    do.call(rbind, lapply(names(file_data), function(section_name) {
+      section_data <- file_data[[section_name]]
+      # Create a data frame with file name and section name for context
+      data.frame(
+        File = file_name,
+        Rep = section_name,
+        BIC = section_data["BIC"],
+        aBIC = section_data["aBIC"],
+        VLMR = section_data["VLMR"],
+        Par = section_data["par"],
+        LL = section_data["LL"],
+        stringsAsFactors = FALSE
+      )
+    }))
+  }))
+  
+  return(combined_data)
+}
+
+
+# Combine all extracted values into a single data frame
+if (length(subsubsubfolders) == 0) {
+  extracted_dataset <- combine_extracted_values(data_list) %>% 
+    separate(
+      col = File,
+      # Column to split
+      into = c("sim_model", "N", "k", "k_split", "separation"),
+      # New column names
+      sep = "_",
+      # Separator (underscore)
+      remove = TRUE                # Remove the original column
+    ) %>%
+    mutate(
+      N = gsub("N", "", N),
+      # Remove the 'N' prefix from the N column
+      k = gsub("C", "", k),
+      # Remove the 'C' prefix from the k column
+      Rep = gsub("Replication_", "", Rep),
+      # Remove the 'Replication_' prefix from the Rep column
+      across(c(N, k, Rep), as.numeric),
+      # Convert N, k, and Rep to numeric if needed
+      model = model_name
+    ) %>%
+    mutate_if(is.character, as.factor) %>%
+    mutate(CAIC = -2 * LL + Par * (log(N) + 1)) %>%
+    mutate(AWE = -2 * LL + 2 * Par * (log(N) + 1.5)) %>%
+    mutate(SIC = -.5 * BIC) %>%
+    drop_na(SIC) %>%
+    group_by(sim_model, N, k_split, separation, Rep) %>%
+    mutate(expSIC = exp(SIC - max(SIC))) %>%
+    mutate(cmPk = expSIC / sum(expSIC)) %>%
+    ungroup() %>%
+    mutate(
+      # Apply rounding to specific columns that may require it
+      across(c(BIC, aBIC, VLMR, LL, CAIC, AWE, cmPk), ~ round(.x, 3))  # Round to three decimal places
+    )
+} else {
+  extracted_dataset <- combine_extracted_values(data_list) %>% 
+    separate(
+      col = File,
+      # Column to split
+      into = c("sim_model", "N", "k", "k_split", "de", "separation"),
+      # New column names
+      sep = "_",
+      # Separator (underscore)
+      remove = TRUE                # Remove the original column
+    ) %>%
+    mutate(
+      N = gsub("N", "", N),
+      # Remove the 'N' prefix from the N column
+      k = gsub("C", "", k),
+      # Remove the 'C' prefix from the k column
+      de = gsub("de", "", de),
+      # Remove the 'de' prefix from the de column
+      Rep = gsub("Replication_", "", Rep),
+      # Remove the 'Replication_' prefix from the Rep column
+      across(c(N, k, Rep, de), as.numeric),
+      # Convert N, k, and Rep to numeric if needed
+      model = model_name
+    ) %>%
+    mutate_if(is.character, as.factor) %>%
+    mutate(CAIC = -2 * LL + Par * (log(N) + 1)) %>%
+    mutate(AWE = -2 * LL + 2 * Par * (log(N) + 1.5)) %>%
+    mutate(SIC = -.5 * BIC) %>%
+    drop_na(SIC) %>%
+    group_by(sim_model, N, k_split, separation, de, Rep) %>%
+    mutate(expSIC = exp(SIC - max(SIC))) %>%
+    mutate(cmPk = expSIC / sum(expSIC)) %>%
+    ungroup() %>%
+    mutate(
+      # Apply rounding to specific columns that may require it
+      across(c(BIC, aBIC, VLMR, LL, CAIC, AWE, cmPk), ~ round(.x, 3))  # Round to three decimal places
+    )
+}
+
+# Remove rownames
+rownames(extracted_dataset) <- NULL
+
+                              
+# List all Mplus output files (assuming .out files)
+mplus_files <- unlist(lapply(final_folders, function(folder) {
+  list.files(folder, pattern = "\\.out$", full.names = TRUE)
+}))
+
+# Define the error messages
+error_1 <- "THE STANDARD ERRORS OF THE MODEL PARAMETER ESTIMATES MAY NOT BE"
+error_2 <- "ONE OR MORE MULTINOMIAL LOGIT PARAMETERS WERE FIXED TO AVOID SINGULARITY"
+error_3 <- "USING MORE RANDOM STARTS MAY RESOLVE THE PROBLEM."
+
+# Initialize a list to store results for all files
+results <- list()
+
+# Process each file
+for (file_path in mplus_files) {
+  # Read the file content
+  file_content <- readLines(file_path)
+  
+  # Initialize a vector to store replication numbers
+  replications_with_error <- c()
+  
+  # Loop through the lines to detect replications with errors
+  for (i in seq_along(file_content)) {
+    if (grepl(error_1, file_content[i], fixed = TRUE) ||
+        grepl(error_2, file_content[i], fixed = TRUE) || 
+        grepl(error_3, file_content[i], fixed = TRUE)) {
+      # Find the replication number in the previous lines
+      replication_line <- grep("REPLICATION", file_content[1:i], value = TRUE)
+      if (length(replication_line) > 0) {
+        replication_number <- gsub("[: ]", "", gsub("REPLICATION", "", replication_line[length(replication_line)]))
+        replications_with_error <- c(replications_with_error, replication_number)
+      }
+    }
+  }
+  
+  # Remove duplicate replication numbers
+  replications_with_error <- unique(replications_with_error)
+  
+  # Count the number of unique replications with errors
+  num_replications <- length(replications_with_error)
+  
+  # Save results for this file
+  results[[file_path]] <- data.frame(
+    file = file_path,
+    num_replications = num_replications,
+    replications_with_error = paste(replications_with_error, collapse = " ")
+  )
+
+}
+
+final_results <- do.call(rbind, results)
+rownames(final_results) <- NULL
+
+# Error proportion
+final_results$error_proportion <- ifelse(final_results$num_replications == 0, 
+                                         0, 
+                                         final_results$num_replications / 500)
+
+
+if (length(subsubsubfolders) == 0) {
+  # Enhance final_results by adding columns for grouping
+  enhanced_final_results <- final_results %>%
+    mutate(
+      N = as.numeric(str_extract(
+        file, "(?<=/)(1000|200|500|5000)(?=/)"
+      )), # Extract N value
+      k_split = factor(ifelse(
+        str_detect(file, "uneven"), "uneven", "even"
+      )), # Determine k_split based on 'even' in path
+      separation = factor(sep_cond)
+    ) %>%
+    select(N,
+           k_split,
+           separation,
+           replications_with_error,
+           num_replications,
+           file) %>%
+    mutate(replications_with_error =  str_split(replications_with_error, " ")) %>%
+    group_by(N, k_split, separation) %>%
+    summarise(
+      replications_with_error = list(sort(unique(
+        na.omit(as.numeric(unlist(
+          replications_with_error
+        )))
+      ))),
+      # Collect all unique replications
+      number_of_errors = lengths(replications_with_error),
+      # Count unique replications
+      .groups = "drop"
+    ) %>%
+    arrange(N, k_split)
+  
+  # Convert the nested list of replications into a long format
+  replications_to_remove <- enhanced_final_results %>%
+    unnest(replications_with_error) %>%  # Expand list of replication numbers into rows
+    rename(Rep = replications_with_error) %>%  # Rename column to match extracted_index
+    select(N, k_split, separation, Rep)  # Keep only necessary columns
+  
+  # Remove replications that match those in replications_to_remove
+  inital_clean <- extracted_dataset %>%
+    anti_join(replications_to_remove,
+              by = c("N", "k_split", "separation", "Rep"))
+  
+  # Count how many unique `k` values per condition
+  total_k_counts <- inital_clean %>%
+    group_by(sim_model, N, k_split, separation) %>%
+    summarise(expected_k = n_distinct(k), .groups = "drop")
+  
+  # Count how many `k`s are observed per replication
+  rep_k_counts <- inital_clean %>%
+    group_by(sim_model, N, k_split, separation, Rep) %>%
+    summarise(observed_k = n_distinct(k), .groups = "drop")
+  
+  # Keep only reps where all `k`s are present
+  valid_reps <- rep_k_counts %>%
+    inner_join(total_k_counts,
+               by = c("sim_model", "N", "k_split", "separation")) %>%
+    filter(observed_k == expected_k) %>%
+    select(sim_model, N, k_split, separation, Rep)
+  
+  # Filter dataset to keep only complete reps
+  extracted_dataset_cleaned <- inital_clean %>%
+    inner_join(valid_reps, by = c("sim_model", "N", "k_split", "separation", "Rep"))
+  
+   # Count the number of replications per condition
+  replication_counts <- extracted_dataset_cleaned %>%
+    group_by(sim_model, N, k, k_split, separation) %>%
+    summarise(replication_count = n(), .groups = "drop")
+  
+} else {
+  # Enhance final_results by adding columns for grouping
+  enhanced_final_results <- final_results %>%
+    mutate(
+      N = as.numeric(str_extract(
+        file, "(?<=/)(1000|200|500|5000)(?=/)"
+      )),
+      # Extract N value
+      de = as.numeric(str_extract(file, "(?<=de)([0-9\\.]+)")),
+      # Extract de value
+      k_split = factor(ifelse(
+        str_detect(file, "uneven"), "uneven", "even"
+      )),
+      # Determine k_split based on 'even' in path
+      separation = factor(sep_cond)
+    ) %>%
+    select(N,
+           de,
+           k_split,
+           separation,
+           replications_with_error,
+           num_replications,
+           file) %>%
+    mutate(replications_with_error =  str_split(replications_with_error, " ")) %>%
+    group_by(N, de, k_split, separation) %>%
+    summarise(
+      replications_with_error = list(sort(unique(
+        na.omit(as.numeric(unlist(
+          replications_with_error
+        )))
+      ))),
+      # Collect all unique replications
+      number_of_errors = lengths(replications_with_error),
+      # Count unique replications
+      .groups = "drop"
+    ) %>%
+    arrange(N, de, k_split)
+  
+  # Convert the nested list of replications into a long format
+  replications_to_remove <- enhanced_final_results %>%
+    unnest(replications_with_error) %>%  # Expand list of replication numbers into rows
+    rename(Rep = replications_with_error) %>%  # Rename column to match extracted_index
+    select(N, de, k_split, separation, Rep)  # Keep only necessary columns
+  
+  # Remove replications that match those in replications_to_remove
+  inital_clean <- extracted_dataset %>%
+    anti_join(replications_to_remove,
+              by = c("N", "de", "k_split", "separation", "Rep"))
+  
+  # Count how many unique `k` values per condition
+  total_k_counts <- inital_clean %>%
+    group_by(sim_model, N, de, k_split, separation) %>%
+    summarise(expected_k = n_distinct(k), .groups = "drop")
+  
+  # Count how many `k`s are observed per replication
+  rep_k_counts <- inital_clean %>%
+    group_by(sim_model, N, de, k_split, separation, Rep) %>%
+    summarise(observed_k = n_distinct(k), .groups = "drop")
+  
+  # Keep only reps where all `k`s are present
+  valid_reps <- rep_k_counts %>%
+    inner_join(total_k_counts,
+               by = c("sim_model", "N", "de", "k_split", "separation")) %>%
+    filter(observed_k == expected_k) %>%
+    select(sim_model, N, de, k_split, separation, Rep)
+  
+  # Filter dataset to keep only complete reps
+  extracted_dataset_cleaned <- inital_clean %>%
+    inner_join(valid_reps, by = c("sim_model", "N", "de", "k_split", "separation", "Rep"))
+  
+   # Count the number of replications per condition
+  replication_counts <- extracted_dataset_cleaned %>%
+    group_by(sim_model, N, de, k, k_split, separation) %>%
+    summarise(replication_count = n(), .groups = "drop")
+  
+}
+
+# Last check to make sure all looks right
+bad_rows <- extracted_dataset_cleaned %>%
+  filter(
+    is.na(BIC) | BIC <= 0 |
+    is.na(aBIC) | aBIC <= 0 |
+    is.na(VLMR) | VLMR < 0 | VLMR > 1 |
+    is.na(Par) | Par %% 1 != 0 |
+    is.na(LL) | LL > 0
+  )
+
+cat("❌ Problematic replications:", nrow(bad_rows), "\n\n")
+
+
+return(list(extracted_dataset = extracted_dataset_cleaned, replication_counts = replication_counts, files = files, mplus_files = mplus_files, errors = final_results))
+
+}
+
+
+calculate_accuracy_com <- function(extracted_index) {
+
+cleaned_dataset <- extracted_index$extracted_dataset
+
+reps <- extracted_index$replication_counts %>% 
+  select(-k) %>% 
+  distinct() 
+
+if (!"de" %in% names(cleaned_dataset)) {
+  # This tells us which class was selected per fit index
+  index_summary <- cleaned_dataset %>%
+    group_by(Rep, sim_model, k_split, separation, N, model) %>%
+    summarize(
+      BIC = k[which.min(BIC)],
+      aBIC = k[which.min(aBIC)],
+      CAIC = k[which.min(CAIC)],
+      AWE = k[which.min(AWE)],
+      cmPk = k[which.max(cmPk)]
+    )
+  
+  # Calculates the percentages of correctly identified fit indices
+  percentage_ic <- index_summary %>%
+    pivot_longer(
+      -c(Rep, sim_model, k_split, separation, N, model),
+      names_to = "Fit_Index",
+      values_to = "Min"
+    ) %>%
+    group_by(Fit_Index, sim_model, k_split, separation, N, model) %>%
+    summarise(
+      Class_2 = round(100 * sum(Min == 2) / length(Min), 0),
+      Class_3 = round(100 * sum(Min == 3) / length(Min), 0),
+      Class_4 = round(100 * sum(Min == 4) / length(Min), 0),
+      Class_5 = round(100 * sum(Min == 5) / length(Min), 0),
+      Class_6 = round(100 * sum(Min == 6) / length(Min), 0)
+    ) %>%
+    ungroup()
+  
+  
+  count_ic <- index_summary %>%
+    pivot_longer(
+      -c(Rep, sim_model, k_split, separation, N, model),
+      names_to = "Fit_Index",
+      values_to = "Min"
+    ) %>%
+    group_by(Fit_Index, sim_model, k_split, separation, N, model) %>%
+    summarise(
+      Class_2 = sum(Min == 2),
+      Class_3 = sum(Min == 3),
+      Class_4 = sum(Min == 4),
+      Class_5 = sum(Min == 5),
+      Class_6 = sum(Min == 6)
+    ) %>%
+    ungroup() %>%
+    left_join(reps, by = c("sim_model", "N", "k_split", "separation"), relationship = "many-to-many")
+  
+  
+  percentage_vlmr <- cleaned_dataset %>%
+    group_by(Rep, sim_model, k_split, separation, N, model) %>%
+    mutate(
+      # VLMR: Place a 1 only the first time the condition is met, replace NA with 0
+      VLMR_Condition = ifelse(
+        VLMR < 0.05 &
+          lead(VLMR) > 0.05 &
+          cumsum(VLMR < 0.05 &
+                   lead(VLMR) > 0.05) == 1,
+        # Second condition means that it won't add a 1 if its already there
+        1,
+        0
+      ) %>% replace_na(0)
+    ) %>%
+    ungroup() %>%
+    group_by(Rep, sim_model, k_split, separation, N, model) %>%
+    mutate(
+      # If no values are less than 0.05 in the group, assign 1 where k == 6
+      VLMR_Condition = ifelse(all(VLMR_Condition == 0) &
+                                k == 6, 1, VLMR_Condition)
+    ) %>%
+    ungroup() %>%
+    group_by(sim_model, k_split, separation, N, model) %>%
+    summarise(
+      VLMR_Class_2 = round(100 * sum(VLMR_Condition == 1 &
+                                       k == 2) / sum(k == 2), 0),
+      VLMR_Class_3 = round(100 * sum(VLMR_Condition == 1 &
+                                       k == 3) / sum(k == 3), 0),
+      VLMR_Class_4 = round(100 * sum(VLMR_Condition == 1 &
+                                       k == 4) / sum(k == 4), 0),
+      VLMR_Class_5 = round(100 * sum(VLMR_Condition == 1 &
+                                       k == 5) / sum(k == 5), 0),
+      VLMR_Class_6 = round(100 * sum(VLMR_Condition == 1 &
+                                       k == 6) / sum(k == 6), 0)
+    ) %>%
+    ungroup() %>%
+    pivot_longer(cols = starts_with("VLMR"), names_to = "Fit_Index") %>%
+    separate(
+      col = Fit_Index,
+      into = c("Fit_Index", "Class"),
+      extra = "merge",
+      sep = "_",
+      remove = TRUE                # Remove the original column
+    ) %>%
+    pivot_wider(names_from = Class, values_from = value)
+  
+  count_vlmr <- cleaned_dataset %>%
+    group_by(Rep, sim_model, k_split, separation, N, model) %>%
+    mutate(
+      # VLMR: Place a 1 only the first time the condition is met, replace NA with 0
+      VLMR_Condition = ifelse(
+        VLMR < 0.05 &
+          lead(VLMR) > 0.05 &
+          cumsum(VLMR < 0.05 &
+                   lead(VLMR) > 0.05) == 1,
+        # Second condition means that it won't add a 1 if its already there
+        1,
+        0
+      ) %>% replace_na(0)
+    ) %>%
+    ungroup() %>%
+    group_by(Rep, sim_model, k_split, separation, N, model) %>%
+    mutate(
+      # If no values are less than 0.05 in the group, assign 1 where k == 6
+      VLMR_Condition = ifelse(all(VLMR_Condition == 0) &
+                                k == 6, 1, VLMR_Condition)
+    ) %>%
+    ungroup() %>%
+    group_by(sim_model, k_split, separation, N, model) %>%
+    summarise(
+      VLMR_Class_2 = sum(VLMR_Condition == 1 & k == 2),
+      VLMR_Class_3 = sum(VLMR_Condition == 1 & k == 3),
+      VLMR_Class_4 = sum(VLMR_Condition == 1 & k == 4),
+      VLMR_Class_5 = sum(VLMR_Condition == 1 & k == 5),
+      VLMR_Class_6 = sum(VLMR_Condition == 1 & k == 6)
+    ) %>%
+    ungroup() %>%
+    pivot_longer(cols = starts_with("VLMR"), names_to = "Fit_Index") %>%
+    separate(
+      col = Fit_Index,
+      into = c("Fit_Index", "Class"),
+      extra = "merge",
+      sep = "_",
+      remove = TRUE                # Remove the original column
+    ) %>%
+    pivot_wider(names_from = Class, values_from = value) %>%
+    left_join(reps, by = c("sim_model", "N", "k_split", "separation"), relationship = "many-to-many")
+  
+  combined_count <- bind_rows(count_ic, count_vlmr) %>%
+    arrange(Fit_Index, separation, k_split, N)
+
+  combined_percentages <- bind_rows(percentage_ic, percentage_vlmr) %>%
+    arrange(Fit_Index, separation, k_split, N) %>%
+    left_join(
+      reps %>% select(sim_model, N, k_split, separation, replication_count),
+      by = c("sim_model", "N", "k_split", "separation"), relationship = "many-to-many"
+      ) %>%
+    rename(Total = replication_count)
+  
+  
+  return(
+    list(
+      combined_percentages = combined_percentages,
+      combined_count = combined_count,
+      index_summary = index_summary
+    )
+  )
+  
+  
+  
+} else {
+  # This tells us which class was selected per fit index
+  index_summary <- cleaned_dataset %>%
+    group_by(Rep, sim_model, k_split, separation, N, de, model) %>%
+    summarize(
+      BIC = k[which.min(BIC)],
+      aBIC = k[which.min(aBIC)],
+      CAIC = k[which.min(CAIC)],
+      AWE = k[which.min(AWE)],
+      cmPk = k[which.max(cmPk)]
+    )
+  
+  # Calculates the percentages of correctly identified fit indices
+  percentage_ic <- index_summary %>%
+    pivot_longer(
+      -c(Rep, sim_model, k_split, separation, N, de, model),
+      names_to = "Fit_Index",
+      values_to = "Min"
+    ) %>%
+    group_by(Fit_Index, sim_model, k_split, separation, N, de, model) %>%
+    summarise(
+      Class_2 = round(100 * sum(Min == 2) / length(Min), 0),
+      Class_3 = round(100 * sum(Min == 3) / length(Min), 0),
+      Class_4 = round(100 * sum(Min == 4) / length(Min), 0),
+      Class_5 = round(100 * sum(Min == 5) / length(Min), 0),
+      Class_6 = round(100 * sum(Min == 6) / length(Min), 0)
+    ) %>%
+    ungroup()
+  
+  
+  count_ic <- index_summary %>%
+    pivot_longer(
+      -c(Rep, sim_model, k_split, separation, N, de, model),
+      names_to = "Fit_Index",
+      values_to = "Min"
+    ) %>%
+    group_by(Fit_Index, sim_model, k_split, separation, N, de, model) %>%
+    summarise(
+      Class_2 = sum(Min == 2),
+      Class_3 = sum(Min == 3),
+      Class_4 = sum(Min == 4),
+      Class_5 = sum(Min == 5),
+      Class_6 = sum(Min == 6)
+    ) %>%
+    ungroup() %>%
+    left_join(reps, by = c("sim_model", "N", "de", "k_split", "separation"), relationship = "many-to-many")
+  
+  
+  percentage_vlmr <- cleaned_dataset %>%
+    group_by(Rep, sim_model, k_split, separation, N, de, model) %>%
+    mutate(
+      # VLMR: Place a 1 only the first time the condition is met, replace NA with 0
+      VLMR_Condition = ifelse(
+        VLMR < 0.05 &
+          lead(VLMR) > 0.05 &
+          cumsum(VLMR < 0.05 &
+                   lead(VLMR) > 0.05) == 1,
+        # Second condition means that it won't add a 1 if its already there
+        1,
+        0
+      ) %>% replace_na(0)
+    ) %>%
+    ungroup() %>%
+    group_by(Rep, sim_model, k_split, separation, N, de, model) %>%
+    mutate(
+      # If no values are less than 0.05 in the group, assign 1 where k == 6
+      VLMR_Condition = ifelse(all(VLMR_Condition == 0) &
+                                k == 6, 1, VLMR_Condition)
+    ) %>%
+    ungroup() %>%
+    group_by(sim_model, k_split, separation, N, de, model) %>%
+    summarise(
+      VLMR_Class_2 = round(100 * sum(VLMR_Condition == 1 &
+                                       k == 2) / sum(k == 2), 0),
+      VLMR_Class_3 = round(100 * sum(VLMR_Condition == 1 &
+                                       k == 3) / sum(k == 3), 0),
+      VLMR_Class_4 = round(100 * sum(VLMR_Condition == 1 &
+                                       k == 4) / sum(k == 4), 0),
+      VLMR_Class_5 = round(100 * sum(VLMR_Condition == 1 &
+                                       k == 5) / sum(k == 5), 0),
+      VLMR_Class_6 = round(100 * sum(VLMR_Condition == 1 &
+                                       k == 6) / sum(k == 6), 0)
+    ) %>%
+    ungroup() %>%
+    pivot_longer(cols = starts_with("VLMR"), names_to = "Fit_Index") %>%
+    separate(
+      col = Fit_Index,
+      into = c("Fit_Index", "Class"),
+      extra = "merge",
+      sep = "_",
+      remove = TRUE                # Remove the original column
+    ) %>%
+    pivot_wider(names_from = Class, values_from = value)
+  
+  count_vlmr <- cleaned_dataset %>%
+    group_by(Rep, sim_model, k_split, separation, N, de, model) %>%
+    mutate(
+      # VLMR: Place a 1 only the first time the condition is met, replace NA with 0
+      VLMR_Condition = ifelse(
+        VLMR < 0.05 &
+          lead(VLMR) > 0.05 &
+          cumsum(VLMR < 0.05 &
+                   lead(VLMR) > 0.05) == 1,
+        # Second condition means that it won't add a 1 if its already there
+        1,
+        0
+      ) %>% replace_na(0)
+    ) %>%
+    ungroup() %>%
+    group_by(Rep, sim_model, k_split, separation, N, de, model) %>%
+    mutate(
+      # If no values are less than 0.05 in the group, assign 1 where k == 6
+      VLMR_Condition = ifelse(all(VLMR_Condition == 0) &
+                                k == 6, 1, VLMR_Condition)
+    ) %>%
+    ungroup() %>%
+    group_by(sim_model, k_split, separation, N, de, model) %>%
+    summarise(
+      VLMR_Class_2 = sum(VLMR_Condition == 1 & k == 2),
+      VLMR_Class_3 = sum(VLMR_Condition == 1 & k == 3),
+      VLMR_Class_4 = sum(VLMR_Condition == 1 & k == 4),
+      VLMR_Class_5 = sum(VLMR_Condition == 1 & k == 5),
+      VLMR_Class_6 = sum(VLMR_Condition == 1 & k == 6)
+    ) %>%
+    ungroup() %>%
+    pivot_longer(cols = starts_with("VLMR"), names_to = "Fit_Index") %>%
+    separate(
+      col = Fit_Index,
+      into = c("Fit_Index", "Class"),
+      extra = "merge",
+      sep = "_",
+      remove = TRUE                
+    ) %>%
+    pivot_wider(names_from = Class, values_from = value) %>%
+    left_join(reps, by = c("sim_model", "N", "de", "k_split", "separation"), relationship = "many-to-many")
+  
+  combined_count <- bind_rows(count_ic, count_vlmr) %>%
+    arrange(Fit_Index, separation, k_split, N, desc(de))
+  
+  combined_percentages <- bind_rows(percentage_ic, percentage_vlmr) %>%
+    arrange(Fit_Index, separation, k_split, N, desc(de)) %>%
+    left_join(
+      reps %>% select(sim_model, N, de, k_split, separation, replication_count),
+      by = c("sim_model", "N", "de", "k_split", "separation"), relationship = "many-to-many"
+      ) %>%
+    rename(Total = replication_count)
+  
+  return(
+    list(
+      combined_percentages = combined_percentages,
+      combined_count = combined_count,
+      index_summary = index_summary
+    )
+  )
+  
+}
+
+}
+
+
+calculate_accuracy_sim <- function(extracted_index) {
+
+cleaned_dataset <- extracted_index$extracted_dataset
+
+reps <- extracted_index$replication_counts %>% 
+  select(-k) %>% 
+  distinct() 
+
+if (!"de" %in% names(cleaned_dataset)) {
+  # This tells us which class was selected per fit index
+  index_summary <- cleaned_dataset %>%
+    group_by(Rep, sim_model, k_split, separation, N, model) %>%
+    summarize(
+      BIC = k[which.min(BIC)],
+      aBIC = k[which.min(aBIC)],
+      CAIC = k[which.min(CAIC)],
+      AWE = k[which.min(AWE)],
+      cmPk = k[which.max(cmPk)]
+    )
+  
+  # Calculates the percentages of correctly identified fit indices
+  percentage_ic <- index_summary %>%
+    pivot_longer(
+      -c(Rep, sim_model, k_split, separation, N, model),
+      names_to = "Fit_Index",
+      values_to = "Min"
+    ) %>%
+    group_by(Fit_Index, sim_model, k_split, separation, N, model) %>%
+    summarise(
+      Class_2 = round(100 * sum(Min == 2) / length(Min), 0),
+      Class_3 = round(100 * sum(Min == 3) / length(Min), 0),
+      Class_4 = round(100 * sum(Min == 4) / length(Min), 0),
+      Class_5 = round(100 * sum(Min == 5) / length(Min), 0)
+    ) %>%
+    ungroup()
+  
+  
+  count_ic <- index_summary %>%
+    pivot_longer(
+      -c(Rep, sim_model, k_split, separation, N, model),
+      names_to = "Fit_Index",
+      values_to = "Min"
+    ) %>%
+    group_by(Fit_Index, sim_model, k_split, separation, N, model) %>%
+    summarise(
+      Class_2 = sum(Min == 2),
+      Class_3 = sum(Min == 3),
+      Class_4 = sum(Min == 4),
+      Class_5 = sum(Min == 5)
+    ) %>%
+    ungroup() %>%
+    left_join(reps, by = c("sim_model", "N", "k_split", "separation"), relationship = "many-to-many")
+  
+  
+  percentage_vlmr <- cleaned_dataset %>%
+    group_by(Rep, sim_model, k_split, separation, N, model) %>%
+    mutate(
+      # VLMR: Place a 1 only the first time the condition is met, replace NA with 0
+      VLMR_Condition = ifelse(
+        VLMR < 0.05 &
+          lead(VLMR) > 0.05 &
+          cumsum(VLMR < 0.05 &
+                   lead(VLMR) > 0.05) == 1,
+        # Second condition means that it won't add a 1 if its already there
+        1,
+        0
+      ) %>% replace_na(0)
+    ) %>%
+    ungroup() %>%
+    group_by(Rep, sim_model, k_split, separation, N, model) %>%
+    mutate(
+      # If no values are less than 0.05 in the group, assign 1 where k == 5
+      VLMR_Condition = ifelse(all(VLMR_Condition == 0) &
+                                k == 5, 1, VLMR_Condition)
+    ) %>%
+    ungroup() %>%
+    group_by(sim_model, k_split, separation, N, model) %>%
+    summarise(
+      VLMR_Class_2 = round(100 * sum(VLMR_Condition == 1 &
+                                       k == 2) / sum(k == 2), 0),
+      VLMR_Class_3 = round(100 * sum(VLMR_Condition == 1 &
+                                       k == 3) / sum(k == 3), 0),
+      VLMR_Class_4 = round(100 * sum(VLMR_Condition == 1 &
+                                       k == 4) / sum(k == 4), 0),
+      VLMR_Class_5 = round(100 * sum(VLMR_Condition == 1 &
+                                       k == 5) / sum(k == 5), 0)
+    ) %>%
+    ungroup() %>%
+    pivot_longer(cols = starts_with("VLMR"), names_to = "Fit_Index") %>%
+    separate(
+      col = Fit_Index,
+      into = c("Fit_Index", "Class"),
+      extra = "merge",
+      sep = "_",
+      remove = TRUE                # Remove the original column
+    ) %>%
+    pivot_wider(names_from = Class, values_from = value)
+  
+  count_vlmr <- cleaned_dataset %>%
+    group_by(Rep, sim_model, k_split, separation, N, model) %>%
+    mutate(
+      # VLMR: Place a 1 only the first time the condition is met, replace NA with 0
+      VLMR_Condition = ifelse(
+        VLMR < 0.05 &
+          lead(VLMR) > 0.05 &
+          cumsum(VLMR < 0.05 &
+                   lead(VLMR) > 0.05) == 1,
+        # Second condition means that it won't add a 1 if its already there
+        1,
+        0
+      ) %>% replace_na(0)
+    ) %>%
+    ungroup() %>%
+    group_by(Rep, sim_model, k_split, separation, N, model) %>%
+    mutate(
+      # If no values are less than 0.05 in the group, assign 1 where k == 5
+      VLMR_Condition = ifelse(all(VLMR_Condition == 0) &
+                                k == 5, 1, VLMR_Condition)
+    ) %>%
+    ungroup() %>%
+    group_by(sim_model, k_split, separation, N, model) %>%
+    summarise(
+      VLMR_Class_2 = sum(VLMR_Condition == 1 & k == 2),
+      VLMR_Class_3 = sum(VLMR_Condition == 1 & k == 3),
+      VLMR_Class_4 = sum(VLMR_Condition == 1 & k == 4),
+      VLMR_Class_5 = sum(VLMR_Condition == 1 & k == 5)
+    ) %>%
+    ungroup() %>%
+    pivot_longer(cols = starts_with("VLMR"), names_to = "Fit_Index") %>%
+    separate(
+      col = Fit_Index,
+      into = c("Fit_Index", "Class"),
+      extra = "merge",
+      sep = "_",
+      remove = TRUE                # Remove the original column
+    ) %>%
+    pivot_wider(names_from = Class, values_from = value) %>%
+    left_join(reps, by = c("sim_model", "N", "k_split", "separation"), relationship = "many-to-many")
+  
+  combined_count <- bind_rows(count_ic, count_vlmr) %>%
+    arrange(Fit_Index, separation, k_split, N)
+  
+  combined_percentages <- bind_rows(percentage_ic, percentage_vlmr) %>%
+    arrange(Fit_Index, separation, k_split, N) %>%
+    left_join(
+      reps %>% select(sim_model, N, k_split, separation, replication_count),
+      by = c("sim_model", "N", "k_split", "separation"), relationship = "many-to-many"
+      ) %>%
+    rename(Total = replication_count)
+  
+  
+} else {
+  # This tells us which class was selected per fit index
+  index_summary <- cleaned_dataset %>%
+    group_by(Rep, sim_model, k_split, separation, N, de, model) %>%
+    summarize(
+      BIC = k[which.min(BIC)],
+      aBIC = k[which.min(aBIC)],
+      CAIC = k[which.min(CAIC)],
+      AWE = k[which.min(AWE)],
+      cmPk = k[which.max(cmPk)]
+    )
+  
+  # Calculates the percentages of correctly identified fit indices
+  percentage_ic <- index_summary %>%
+    pivot_longer(
+      -c(Rep, sim_model, k_split, separation, N, de, model),
+      names_to = "Fit_Index",
+      values_to = "Min"
+    ) %>%
+    group_by(Fit_Index, sim_model, k_split, separation, N, de, model) %>%
+    summarise(
+      Class_2 = round(100 * sum(Min == 2) / length(Min), 0),
+      Class_3 = round(100 * sum(Min == 3) / length(Min), 0),
+      Class_4 = round(100 * sum(Min == 4) / length(Min), 0),
+      Class_5 = round(100 * sum(Min == 5) / length(Min), 0)
+    ) %>%
+    ungroup()
+  
+  
+  count_ic <- index_summary %>%
+    pivot_longer(
+      -c(Rep, sim_model, k_split, separation, N, de, model),
+      names_to = "Fit_Index",
+      values_to = "Min"
+    ) %>%
+    group_by(Fit_Index, sim_model, k_split, separation, N, de, model) %>%
+    summarise(
+      Class_2 = sum(Min == 2),
+      Class_3 = sum(Min == 3),
+      Class_4 = sum(Min == 4),
+      Class_5 = sum(Min == 5)
+    ) %>%
+    ungroup() %>%
+    left_join(reps, by = c("sim_model", "N", "de", "k_split", "separation"), relationship = "many-to-many")
+  
+  
+  percentage_vlmr <- cleaned_dataset %>%
+    group_by(Rep, sim_model, k_split, separation, N, de, model) %>%
+    mutate(
+      # VLMR: Place a 1 only the first time the condition is met, replace NA with 0
+      VLMR_Condition = ifelse(
+        VLMR < 0.05 &
+          lead(VLMR) > 0.05 &
+          cumsum(VLMR < 0.05 &
+                   lead(VLMR) > 0.05) == 1,
+        # Second condition means that it won't add a 1 if its already there
+        1,
+        0
+      ) %>% replace_na(0)
+    ) %>%
+    ungroup() %>%
+    group_by(Rep, sim_model, k_split, separation, N, de, model) %>%
+    mutate(
+      # If no values are less than 0.05 in the group, assign 1 where k == 5
+      VLMR_Condition = ifelse(all(VLMR_Condition == 0) &
+                                k == 5, 1, VLMR_Condition)
+    ) %>%
+    ungroup() %>%
+    group_by(sim_model, k_split, separation, N, de, model) %>%
+    summarise(
+      VLMR_Class_2 = round(100 * sum(VLMR_Condition == 1 &
+                                       k == 2) / sum(k == 2), 0),
+      VLMR_Class_3 = round(100 * sum(VLMR_Condition == 1 &
+                                       k == 3) / sum(k == 3), 0),
+      VLMR_Class_4 = round(100 * sum(VLMR_Condition == 1 &
+                                       k == 4) / sum(k == 4), 0),
+      VLMR_Class_5 = round(100 * sum(VLMR_Condition == 1 &
+                                       k == 5) / sum(k == 5), 0)
+    ) %>%
+    ungroup() %>%
+    pivot_longer(cols = starts_with("VLMR"), names_to = "Fit_Index") %>%
+    separate(
+      col = Fit_Index,
+      into = c("Fit_Index", "Class"),
+      extra = "merge",
+      sep = "_",
+      remove = TRUE                # Remove the original column
+    ) %>%
+    pivot_wider(names_from = Class, values_from = value)
+  
+  count_vlmr <- cleaned_dataset %>%
+    group_by(Rep, sim_model, k_split, separation, N, de, model) %>%
+    mutate(
+      # VLMR: Place a 1 only the first time the condition is met, replace NA with 0
+      VLMR_Condition = ifelse(
+        VLMR < 0.05 &
+          lead(VLMR) > 0.05 &
+          cumsum(VLMR < 0.05 &
+                   lead(VLMR) > 0.05) == 1,
+        # Second condition means that it won't add a 1 if its already there
+        1,
+        0
+      ) %>% replace_na(0)
+    ) %>%
+    ungroup() %>%
+    group_by(Rep, sim_model, k_split, separation, N, de, model) %>%
+    mutate(
+      # If no values are less than 0.05 in the group, assign 1 where k == 5
+      VLMR_Condition = ifelse(all(VLMR_Condition == 0) &
+                                k == 5, 1, VLMR_Condition)
+    ) %>%
+    ungroup() %>%
+    group_by(sim_model, k_split, separation, N, de, model) %>%
+    summarise(
+      VLMR_Class_2 = sum(VLMR_Condition == 1 & k == 2),
+      VLMR_Class_3 = sum(VLMR_Condition == 1 & k == 3),
+      VLMR_Class_4 = sum(VLMR_Condition == 1 & k == 4),
+      VLMR_Class_5 = sum(VLMR_Condition == 1 & k == 5)
+    ) %>%
+    ungroup() %>%
+    pivot_longer(cols = starts_with("VLMR"), names_to = "Fit_Index") %>%
+    separate(
+      col = Fit_Index,
+      into = c("Fit_Index", "Class"),
+      extra = "merge",
+      sep = "_",
+      remove = TRUE                # Remove the original column
+    ) %>%
+    pivot_wider(names_from = Class, values_from = value) %>%
+    left_join(reps, by = c("sim_model", "N", "de", "k_split", "separation"), relationship = "many-to-many")
+  
+  combined_count <- bind_rows(count_ic, count_vlmr) %>%
+    arrange(Fit_Index, separation, k_split, N, desc(de))
+  
+  combined_percentages <- bind_rows(percentage_ic, percentage_vlmr) %>%
+    arrange(Fit_Index, separation, k_split, N, desc(de)) %>%
+    left_join(
+      reps %>% select(sim_model, N, de, k_split, separation, replication_count),
+      by = c("sim_model", "N", "de", "k_split", "separation"), relationship = "many-to-many"
+      ) %>%
+    rename(Total = replication_count)
+  
+}
+
+return(
+  list(
+    combined_percentages = combined_percentages,
+    combined_count = combined_count,
+    index_summary = index_summary
+  )
+)
+
+}
+
+
+
+# Function to create the gt table
+gt_table_com <- function(data) {
+
+# Function to bold the highest value in each row within a set of columns
+bold_max_per_index <- function(df, cols) {
+  df %>%
+    rowwise() %>%
+    mutate(across(all_of(cols), 
+                  ~ ifelse(. == max(c_across(all_of(cols)), na.rm = TRUE), 
+                           paste0("**", round(., 3), "**"), 
+                           as.character(round(., 3))))) %>%
+    ungroup()
+}
+
+# Combine all extracted values into a single data frame
+if (!"de" %in% names(data)) {
+  
+  # Apply transformations
+clean_data <- data %>% 
+  pivot_wider(names_from = Fit_Index, values_from = c(Class_2, Class_3, Class_4, Class_5, Class_6)) %>% 
+  select(model, separation, m, p, N, k_split, 
+        Class_2_BIC, Class_3_BIC, Class_4_BIC, Class_5_BIC, Class_6_BIC,
+        Class_2_aBIC, Class_3_aBIC, Class_4_aBIC, Class_5_aBIC, Class_6_aBIC,
+        Class_2_CAIC, Class_3_CAIC, Class_4_CAIC, Class_5_CAIC, Class_6_CAIC, 
+        Class_2_AWE, Class_3_AWE, Class_4_AWE, Class_5_AWE, Class_6_AWE,
+      #  Class_2_cmPk, Class_3_cmPk, Class_4_cmPk, Class_5_cmPk, Class_6_cmPk,
+        Class_2_VLMR, Class_3_VLMR, Class_4_VLMR, Class_5_VLMR, Class_6_VLMR, Total) %>%
+  bold_max_per_index(c("Class_2_BIC", "Class_3_BIC", "Class_4_BIC", "Class_5_BIC", "Class_6_BIC")) %>%
+  bold_max_per_index(c("Class_2_aBIC", "Class_3_aBIC", "Class_4_aBIC", "Class_5_aBIC", "Class_6_aBIC")) %>%
+  bold_max_per_index(c("Class_2_CAIC", "Class_3_CAIC", "Class_4_CAIC", "Class_5_CAIC", "Class_6_CAIC")) %>%
+  bold_max_per_index(c("Class_2_AWE", "Class_3_AWE", "Class_4_AWE", "Class_5_AWE", "Class_6_AWE")) %>%
+ # bold_max_per_index(c("Class_2_cmPk", "Class_3_cmPk", "Class_4_cmPk", "Class_5_cmPk", "Class_6_cmPk")) %>%
+  bold_max_per_index(c("Class_2_VLMR", "Class_3_VLMR", "Class_4_VLMR", "Class_5_VLMR", "Class_6_VLMR")) %>% 
+  arrange(m, p, N, k_split) %>% 
+  mutate(k_split = str_to_sentence(k_split),
+         p = str_to_sentence(p),
+         m = str_to_sentence(m),
+         model = str_to_sentence(model),
+         separation = str_to_sentence(separation))
+  
+  # Start building the gt table
+  table <- clean_data %>%
+    gt() %>%
+    fmt_markdown(columns = everything()) %>%  
+    tab_header(
+      md(
+        "*Percentage of Times the Lowest Value Occurred in Each Class Model
+        for the AIC, CAIC, VLMR, and Adjusted VLMR*"
+      )
+    ) %>%
+    cols_label(
+      p = "Pop. Model",
+      m = "Analysis Model",
+      model = "Model",
+      k_split = md("*k*-Split"),
+      separation = md("Separation"),
+      N = md("*N*"),
+      
+      # BIC Columns
+      Class_2_BIC = md("*2*"),
+      Class_3_BIC = md("*3*"),
+      Class_4_BIC = md("*4*"),
+      Class_5_BIC = md("*5*"),
+      Class_6_BIC = md("*6*"),
+      
+      # aBIC Columns
+      Class_2_aBIC = md("*2*"),
+      Class_3_aBIC = md("*3*"),
+      Class_4_aBIC = md("*4*"),
+      Class_5_aBIC = md("*5*"),
+      Class_6_aBIC = md("*6*"),
+      
+      # CAIC Columns
+      Class_2_CAIC = md("*2*"),
+      Class_3_CAIC = md("*3*"),
+      Class_4_CAIC = md("*4*"),
+      Class_5_CAIC = md("*5*"),
+      Class_6_CAIC = md("*6*"),
+      
+      # AWE Columns
+      Class_2_AWE = md("*2*"),
+      Class_3_AWE = md("*3*"),
+      Class_4_AWE = md("*4*"),
+      Class_5_AWE = md("*5*"),
+      Class_6_AWE = md("*6*"),
+      
+      # cmPk Columns
+   #   Class_2_cmPk = md("*2*"),
+  #    Class_3_cmPk = md("*3*"),
+  #    Class_4_cmPk = md("*4*"),
+  #    Class_5_cmPk = md("*5*"),
+  #    Class_6_cmPk = md("*6*"),
+      
+      # VLMR Columns
+      Class_2_VLMR = md("*2*"),
+      Class_3_VLMR = md("*3*"),
+      Class_4_VLMR = md("*4*"),
+      Class_5_VLMR = md("*5*"),
+      Class_6_VLMR = md("*NA*"),
+      
+      Total = md("*Total Reps*")
+    )  %>%
+    tab_spanner(
+    id = "BIC",
+    label = md("*BIC*"),
+    columns = c(Class_2_BIC, Class_3_BIC, Class_4_BIC, Class_5_BIC, Class_6_BIC)
+  ) %>%
+  tab_spanner(
+    id = "aBIC",
+    label = md("*aBIC*"),
+    columns = c(Class_2_aBIC, Class_3_aBIC, Class_4_aBIC, Class_5_aBIC, Class_6_aBIC)
+  ) %>%
+  tab_spanner(
+    id = "CAIC",
+    label = md("*CAIC*"),
+    columns = c(Class_2_CAIC, Class_3_CAIC, Class_4_CAIC, Class_5_CAIC, Class_6_CAIC)
+  ) %>%
+  tab_spanner(
+    id = "AWE",
+    label = md("*AWE*"),
+    columns = c(Class_2_AWE, Class_3_AWE, Class_4_AWE, Class_5_AWE, Class_6_AWE)
+  ) %>%
+ # tab_spanner(
+#    id = "cmPk",
+#    label = md("*cmPk*"),
+#    columns = c(Class_2_cmPk, Class_3_cmPk, Class_4_cmPk, Class_5_cmPk, Class_6_cmPk)
+#  ) %>%
+  tab_spanner(
+    id = "VLMR",
+    label = md("*VLMR*"),
+    columns = c(Class_2_VLMR, Class_3_VLMR, Class_4_VLMR, Class_5_VLMR, Class_6_VLMR)
+  ) %>% 
+  tab_spanner(
+    label = md("*Latent Class Analysis with Categorical Outcomes*"),
+    spanners = c("BIC", "aBIC", "CAIC", "AWE", "VLMR")
+  ) %>%
+  
+  # Center-align numeric values
+  cols_align(
+    align = "center",
+    columns = 2:ncol(clean_data)  # Apply center alignment to all columns except 'Model'
+  ) %>%
+  opt_row_striping() %>%     
+  # Use Times New Roman font for the table
+  opt_table_font(font = "Times New Roman") %>% 
+    tab_style(
+    style = cell_fill(color = "yellow"),
+    locations = cells_body(columns = c(Class_5_BIC, Class_5_aBIC, Class_5_CAIC, Class_5_AWE, Class_5_VLMR))
+  )
+
+  return(table)
+  
+} else {
+  
+  # Apply transformations
+clean_data <- data %>% 
+  pivot_wider(names_from = Fit_Index, values_from = c(Class_2, Class_3, Class_4, Class_5, Class_6)) %>% 
+  select(model, separation, m, p, N, k_split, de,  
+        Class_2_BIC, Class_3_BIC, Class_4_BIC, Class_5_BIC, Class_6_BIC,
+        Class_2_aBIC, Class_3_aBIC, Class_4_aBIC, Class_5_aBIC, Class_6_aBIC,
+        Class_2_CAIC, Class_3_CAIC, Class_4_CAIC, Class_5_CAIC, Class_6_CAIC, 
+        Class_2_AWE, Class_3_AWE, Class_4_AWE, Class_5_AWE, Class_6_AWE,
+      #  Class_2_cmPk, Class_3_cmPk, Class_4_cmPk, Class_5_cmPk, Class_6_cmPk,
+        Class_2_VLMR, Class_3_VLMR, Class_4_VLMR, Class_5_VLMR, Class_6_VLMR, Total) %>%
+  bold_max_per_index(c("Class_2_BIC", "Class_3_BIC", "Class_4_BIC", "Class_5_BIC", "Class_6_BIC")) %>%
+  bold_max_per_index(c("Class_2_aBIC", "Class_3_aBIC", "Class_4_aBIC", "Class_5_aBIC", "Class_6_aBIC")) %>%
+  bold_max_per_index(c("Class_2_CAIC", "Class_3_CAIC", "Class_4_CAIC", "Class_5_CAIC", "Class_6_CAIC")) %>%
+  bold_max_per_index(c("Class_2_AWE", "Class_3_AWE", "Class_4_AWE", "Class_5_AWE", "Class_6_AWE")) %>%
+ # bold_max_per_index(c("Class_2_cmPk", "Class_3_cmPk", "Class_4_cmPk", "Class_5_cmPk", "Class_6_cmPk")) %>%
+  bold_max_per_index(c("Class_2_VLMR", "Class_3_VLMR", "Class_4_VLMR", "Class_5_VLMR", "Class_6_VLMR")) %>% 
+  arrange(m, p, N, k_split, desc(de)) %>% 
+  mutate(k_split = str_to_sentence(k_split),
+         p = str_to_sentence(p),
+         m = str_to_sentence(m),
+         model = str_to_sentence(model),
+         separation = str_to_sentence(separation))
+  
+  # Start building the gt table
+  table <- clean_data %>%
+    gt() %>%
+    fmt_markdown(columns = everything()) %>%  
+    tab_header(
+      md(
+        "*Percentage of Times the Lowest Value Occurred in Each Class Model
+        for the AIC, CAIC, VLMR, and Adjusted VLMR*"
+      )
+    ) %>%
+    cols_label(
+      p = "Pop. Model",
+      m = "Analysis Model",
+      model = "Model",
+      k_split = md("*k*-Split"),
+      separation = md("Separation"),
+      N = md("*N*"),
+      de = md ("*DE*"),
+      
+      # BIC Columns
+      Class_2_BIC = md("*2*"),
+      Class_3_BIC = md("*3*"),
+      Class_4_BIC = md("*4*"),
+      Class_5_BIC = md("*5*"),
+      Class_6_BIC = md("*6*"),
+      
+      # aBIC Columns
+      Class_2_aBIC = md("*2*"),
+      Class_3_aBIC = md("*3*"),
+      Class_4_aBIC = md("*4*"),
+      Class_5_aBIC = md("*5*"),
+      Class_6_aBIC = md("*6*"),
+      
+      # CAIC Columns
+      Class_2_CAIC = md("*2*"),
+      Class_3_CAIC = md("*3*"),
+      Class_4_CAIC = md("*4*"),
+      Class_5_CAIC = md("*5*"),
+      Class_6_CAIC = md("*6*"),
+      
+      # AWE Columns
+      Class_2_AWE = md("*2*"),
+      Class_3_AWE = md("*3*"),
+      Class_4_AWE = md("*4*"),
+      Class_5_AWE = md("*5*"),
+      Class_6_AWE = md("*6*"),
+      
+      # cmPk Columns
+   #   Class_2_cmPk = md("*2*"),
+  #    Class_3_cmPk = md("*3*"),
+  #    Class_4_cmPk = md("*4*"),
+  #    Class_5_cmPk = md("*5*"),
+  #    Class_6_cmPk = md("*6*"),
+      
+      # VLMR Columns
+      Class_2_VLMR = md("*2*"),
+      Class_3_VLMR = md("*3*"),
+      Class_4_VLMR = md("*4*"),
+      Class_5_VLMR = md("*5*"),
+      Class_6_VLMR = md("*NA*"),
+      
+      Total = md("*Total Reps*")
+    )  %>%
+    tab_spanner(
+    id = "BIC",
+    label = md("*BIC*"),
+    columns = c(Class_2_BIC, Class_3_BIC, Class_4_BIC, Class_5_BIC, Class_6_BIC)
+  ) %>%
+  tab_spanner(
+    id = "aBIC",
+    label = md("*aBIC*"),
+    columns = c(Class_2_aBIC, Class_3_aBIC, Class_4_aBIC, Class_5_aBIC, Class_6_aBIC)
+  ) %>%
+  tab_spanner(
+    id = "CAIC",
+    label = md("*CAIC*"),
+    columns = c(Class_2_CAIC, Class_3_CAIC, Class_4_CAIC, Class_5_CAIC, Class_6_CAIC)
+  ) %>%
+  tab_spanner(
+    id = "AWE",
+    label = md("*AWE*"),
+    columns = c(Class_2_AWE, Class_3_AWE, Class_4_AWE, Class_5_AWE, Class_6_AWE)
+  ) %>%
+ # tab_spanner(
+#    id = "cmPk",
+#    label = md("*cmPk*"),
+#    columns = c(Class_2_cmPk, Class_3_cmPk, Class_4_cmPk, Class_5_cmPk, Class_6_cmPk)
+#  ) %>%
+  tab_spanner(
+    id = "VLMR",
+    label = md("*VLMR*"),
+    columns = c(Class_2_VLMR, Class_3_VLMR, Class_4_VLMR, Class_5_VLMR, Class_6_VLMR)
+  ) %>% 
+  tab_spanner(
+    label = md("*Latent Class Analysis with Categorical Outcomes*"),
+    spanners = c("BIC", "aBIC", "CAIC", "AWE", "VLMR")
+  ) %>%
+  
+  # Center-align numeric values
+  cols_align(
+    align = "center",
+    columns = 2:ncol(clean_data)  # Apply center alignment to all columns except 'Model'
+  ) %>%
+  opt_row_striping() %>%     
+  # Use Times New Roman font for the table
+  opt_table_font(font = "Times New Roman") %>% 
+    tab_style(
+    style = cell_fill(color = "yellow"),
+    locations = cells_body(columns = c(Class_5_BIC, Class_5_aBIC, Class_5_CAIC, Class_5_AWE, Class_5_VLMR))
+  )
+
+  return(table)
+  
+}
+
+
+}
+
+
+# Function to create the gt table
+gt_table_sim <- function(data) {
+
+# Function to bold the highest value in each row within a set of columns
+bold_max_per_index <- function(df, cols) {
+  df %>%
+    rowwise() %>%
+    mutate(across(all_of(cols), 
+                  ~ ifelse(. == max(c_across(all_of(cols)), na.rm = TRUE), 
+                           paste0("**", round(., 3), "**"), 
+                           as.character(round(., 3))))) %>%
+    ungroup()
+}
+
+# Combine all extracted values into a single data frame
+if (!"de" %in% names(data)) {
+  
+  # Apply transformations
+clean_data <- data %>% 
+  pivot_wider(names_from = Fit_Index, values_from = c(Class_2, Class_3, Class_4, Class_5)) %>% 
+  select(model, separation, m, p, N, k_split, 
+        Class_2_BIC, Class_3_BIC, Class_4_BIC, Class_5_BIC,
+        Class_2_aBIC, Class_3_aBIC, Class_4_aBIC, Class_5_aBIC,
+        Class_2_CAIC, Class_3_CAIC, Class_4_CAIC, Class_5_CAIC, 
+        Class_2_AWE, Class_3_AWE, Class_4_AWE, Class_5_AWE,
+      #  Class_2_cmPk, Class_3_cmPk, Class_4_cmPk, Class_5_cmPk, ,
+        Class_2_VLMR, Class_3_VLMR, Class_4_VLMR, Class_5_VLMR, Total) %>%
+  bold_max_per_index(c("Class_2_BIC", "Class_3_BIC", "Class_4_BIC", "Class_5_BIC")) %>%
+  bold_max_per_index(c("Class_2_aBIC", "Class_3_aBIC", "Class_4_aBIC", "Class_5_aBIC")) %>%
+  bold_max_per_index(c("Class_2_CAIC", "Class_3_CAIC", "Class_4_CAIC", "Class_5_CAIC")) %>%
+  bold_max_per_index(c("Class_2_AWE", "Class_3_AWE", "Class_4_AWE", "Class_5_AWE")) %>%
+ # bold_max_per_index(c("Class_2_cmPk", "Class_3_cmPk", "Class_4_cmPk", "Class_5_cmPk")) %>%
+  bold_max_per_index(c("Class_2_VLMR", "Class_3_VLMR", "Class_4_VLMR", "Class_5_VLMR")) %>% 
+  arrange(m, p, N, k_split) %>% 
+  mutate(k_split = str_to_sentence(k_split),
+         p = str_to_sentence(p),
+         m = str_to_sentence(m),
+         model = str_to_sentence(model),
+         separation = str_to_sentence(separation))
+  
+  # Start building the gt table
+  table <- clean_data %>%
+    gt() %>%
+    fmt_markdown(columns = everything()) %>%  
+    tab_header(
+      md(
+        "*Percentage of Times the Lowest Value Occurred in Each Class Model
+        for the AIC, CAIC, VLMR, and Adjusted VLMR*"
+      )
+    ) %>%
+    cols_label(
+      p = "Pop. Model",
+      m = "Analysis Model",
+      model = "Model",
+      k_split = md("*k*-Split"),
+      separation = md("Separation"),
+      N = md("*N*"),
+      
+      # BIC Columns
+      Class_2_BIC = md("*2*"),
+      Class_3_BIC = md("*3*"),
+      Class_4_BIC = md("*4*"),
+      Class_5_BIC = md("*5*"),
+      
+      # aBIC Columns
+      Class_2_aBIC = md("*2*"),
+      Class_3_aBIC = md("*3*"),
+      Class_4_aBIC = md("*4*"),
+      Class_5_aBIC = md("*5*"),
+      
+      # CAIC Columns
+      Class_2_CAIC = md("*2*"),
+      Class_3_CAIC = md("*3*"),
+      Class_4_CAIC = md("*4*"),
+      Class_5_CAIC = md("*5*"),
+      
+      # AWE Columns
+      Class_2_AWE = md("*2*"),
+      Class_3_AWE = md("*3*"),
+      Class_4_AWE = md("*4*"),
+      Class_5_AWE = md("*5*"),
+      
+      # cmPk Columns
+   #   Class_2_cmPk = md("*2*"),
+  #    Class_3_cmPk = md("*3*"),
+  #    Class_4_cmPk = md("*4*"),
+  #    Class_5_cmPk = md("*5*"),
+      
+      # VLMR Columns
+      Class_2_VLMR = md("*2*"),
+      Class_3_VLMR = md("*3*"),
+      Class_4_VLMR = md("*4*"),
+      Class_5_VLMR = md("*NA*"),
+      
+      Total = md("*Total Reps*")
+    )  %>%
+    tab_spanner(
+    id = "BIC",
+    label = md("*BIC*"),
+    columns = c(Class_2_BIC, Class_3_BIC, Class_4_BIC, Class_5_BIC)
+  ) %>%
+  tab_spanner(
+    id = "aBIC",
+    label = md("*aBIC*"),
+    columns = c(Class_2_aBIC, Class_3_aBIC, Class_4_aBIC, Class_5_aBIC)
+  ) %>%
+  tab_spanner(
+    id = "CAIC",
+    label = md("*CAIC*"),
+    columns = c(Class_2_CAIC, Class_3_CAIC, Class_4_CAIC, Class_5_CAIC)
+  ) %>%
+  tab_spanner(
+    id = "AWE",
+    label = md("*AWE*"),
+    columns = c(Class_2_AWE, Class_3_AWE, Class_4_AWE, Class_5_AWE)
+  ) %>%
+ # tab_spanner(
+#    id = "cmPk",
+#    label = md("*cmPk*"),
+#    columns = c(Class_2_cmPk, Class_3_cmPk, Class_4_cmPk, Class_5_cmPk)
+#  ) %>%
+  tab_spanner(
+    id = "VLMR",
+    label = md("*VLMR*"),
+    columns = c(Class_2_VLMR, Class_3_VLMR, Class_4_VLMR, Class_5_VLMR)
+  ) %>% 
+  tab_spanner(
+    label = md("*Latent Class Analysis with Categorical Outcomes*"),
+    spanners = c("BIC", "aBIC", "CAIC", "AWE", "VLMR")
+  ) %>%
+  
+  # Center-align numeric values
+  cols_align(
+    align = "center",
+    columns = 2:ncol(clean_data)  # Apply center alignment to all columns except 'Model'
+  ) %>%
+  opt_row_striping() %>%     
+  # Use Times New Roman font for the table
+  opt_table_font(font = "Times New Roman") %>% 
+    tab_style(
+    style = cell_fill(color = "yellow"),
+    locations = cells_body(columns = c(Class_4_BIC, Class_4_aBIC, Class_4_CAIC, Class_4_AWE, Class_4_VLMR))
+  )
+
+  return(table)
+  
+} else {
+  
+  # Apply transformations
+clean_data <- data %>% 
+  pivot_wider(names_from = Fit_Index, values_from = c(Class_2, Class_3, Class_4, Class_5)) %>% 
+  select(model, separation, m, p, N, k_split, de,  
+        Class_2_BIC, Class_3_BIC, Class_4_BIC, Class_5_BIC,
+        Class_2_aBIC, Class_3_aBIC, Class_4_aBIC, Class_5_aBIC,
+        Class_2_CAIC, Class_3_CAIC, Class_4_CAIC, Class_5_CAIC, 
+        Class_2_AWE, Class_3_AWE, Class_4_AWE, Class_5_AWE,
+      #  Class_2_cmPk, Class_3_cmPk, Class_4_cmPk, Class_5_cmPk,
+        Class_2_VLMR, Class_3_VLMR, Class_4_VLMR, Class_5_VLMR, Total) %>%
+  bold_max_per_index(c("Class_2_BIC", "Class_3_BIC", "Class_4_BIC", "Class_5_BIC")) %>%
+  bold_max_per_index(c("Class_2_aBIC", "Class_3_aBIC", "Class_4_aBIC", "Class_5_aBIC")) %>%
+  bold_max_per_index(c("Class_2_CAIC", "Class_3_CAIC", "Class_4_CAIC", "Class_5_CAIC")) %>%
+  bold_max_per_index(c("Class_2_AWE", "Class_3_AWE", "Class_4_AWE", "Class_5_AWE")) %>%
+ # bold_max_per_index(c("Class_2_cmPk", "Class_3_cmPk", "Class_4_cmPk", "Class_5_cmPk")) %>%
+  bold_max_per_index(c("Class_2_VLMR", "Class_3_VLMR", "Class_4_VLMR", "Class_5_VLMR")) %>% 
+  arrange(m, p, N, k_split, desc(de)) %>% 
+  mutate(k_split = str_to_sentence(k_split),
+         p = str_to_sentence(p),
+         m = str_to_sentence(m),
+         model = str_to_sentence(model),
+         separation = str_to_sentence(separation))
+  
+  # Start building the gt table
+  table <- clean_data %>%
+    gt() %>%
+    fmt_markdown(columns = everything()) %>%  
+    tab_header(
+      md(
+        "*Percentage of Times the Lowest Value Occurred in Each Class Model
+        for the AIC, CAIC, VLMR, and Adjusted VLMR*"
+      )
+    ) %>%
+    cols_label(
+      p = "Pop. Model",
+      m = "Analysis Model",
+      model = "Model",
+      k_split = md("*k*-Split"),
+      separation = md("Separation"),
+      N = md("*N*"),
+      de = md ("*DE*"),
+      
+      # BIC Columns
+      Class_2_BIC = md("*2*"),
+      Class_3_BIC = md("*3*"),
+      Class_4_BIC = md("*4*"),
+      Class_5_BIC = md("*5*"),
+      
+      # aBIC Columns
+      Class_2_aBIC = md("*2*"),
+      Class_3_aBIC = md("*3*"),
+      Class_4_aBIC = md("*4*"),
+      Class_5_aBIC = md("*5*"),
+      
+      # CAIC Columns
+      Class_2_CAIC = md("*2*"),
+      Class_3_CAIC = md("*3*"),
+      Class_4_CAIC = md("*4*"),
+      Class_5_CAIC = md("*5*"),
+      
+      # AWE Columns
+      Class_2_AWE = md("*2*"),
+      Class_3_AWE = md("*3*"),
+      Class_4_AWE = md("*4*"),
+      Class_5_AWE = md("*5*"),
+      
+      # cmPk Columns
+   #   Class_2_cmPk = md("*2*"),
+  #    Class_3_cmPk = md("*3*"),
+  #    Class_4_cmPk = md("*4*"),
+  #    Class_5_cmPk = md("*5*"),
+      
+      # VLMR Columns
+      Class_2_VLMR = md("*2*"),
+      Class_3_VLMR = md("*3*"),
+      Class_4_VLMR = md("*4*"),
+      Class_5_VLMR = md("*NA*"),
+      
+      Total = md("*Total Reps*")
+    )  %>%
+    tab_spanner(
+    id = "BIC",
+    label = md("*BIC*"),
+    columns = c(Class_2_BIC, Class_3_BIC, Class_4_BIC, Class_5_BIC)
+  ) %>%
+  tab_spanner(
+    id = "aBIC",
+    label = md("*aBIC*"),
+    columns = c(Class_2_aBIC, Class_3_aBIC, Class_4_aBIC, Class_5_aBIC)
+  ) %>%
+  tab_spanner(
+    id = "CAIC",
+    label = md("*CAIC*"),
+    columns = c(Class_2_CAIC, Class_3_CAIC, Class_4_CAIC, Class_5_CAIC)
+  ) %>%
+  tab_spanner(
+    id = "AWE",
+    label = md("*AWE*"),
+    columns = c(Class_2_AWE, Class_3_AWE, Class_4_AWE, Class_5_AWE)
+  ) %>%
+ # tab_spanner(
+#    id = "cmPk",
+#    label = md("*cmPk*"),
+#    columns = c(Class_2_cmPk, Class_3_cmPk, Class_4_cmPk, Class_5_cmPk)
+#  ) %>%
+  tab_spanner(
+    id = "VLMR",
+    label = md("*VLMR*"),
+    columns = c(Class_2_VLMR, Class_3_VLMR, Class_4_VLMR, Class_5_VLMR)
+  ) %>% 
+  tab_spanner(
+    label = md("*Latent Class Analysis with Categorical Outcomes*"),
+    spanners = c("BIC", "aBIC", "CAIC", "AWE", "VLMR")
+  ) %>%
+  
+  # Center-align numeric values
+  cols_align(
+    align = "center",
+    columns = 2:ncol(clean_data)  # Apply center alignment to all columns except 'Model'
+  ) %>%
+  opt_row_striping() %>%     
+  # Use Times New Roman font for the table
+  opt_table_font(font = "Times New Roman") %>% 
+    tab_style(
+    style = cell_fill(color = "yellow"),
+    locations = cells_body(columns = c(Class_4_BIC, Class_4_aBIC, Class_4_CAIC, Class_4_AWE, Class_4_VLMR))
+  )
+
+  return(table)
+  
+}
+
+
+}
+

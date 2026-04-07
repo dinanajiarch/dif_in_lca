@@ -1,0 +1,67 @@
+relabel_classes <- function(model, conditions) {
+
+pp_plots <- data.frame(model$parameters$probability.scale) %>% 
+    # Reorder classes:
+  mutate(LatentClass = as.numeric(LatentClass),
+    LatentClass = case_when(
+      !!!conditions,
+      TRUE ~ LatentClass
+    )) %>% 
+  arrange(LatentClass) %>%
+  mutate(LatentClass = sub("^","Class ", LatentClass)) %>% 
+  filter(category == 2) %>% 
+  dplyr::select(est, LatentClass, param) %>% 
+  pivot_wider(names_from = LatentClass, values_from = est) %>% 
+  relocate(param, .after = last_col())
+  
+  # Plotting
+
+c_size <- as.data.frame(model$class_counts$modelEstimated) %>% 
+   mutate(LatentClass = as.numeric(class),
+    LatentClass = case_when(
+      !!!conditions,
+      TRUE ~ LatentClass
+    )) %>% 
+  rename("cs" = "proportion") %>% 
+  mutate(cs = round(cs * 100, 2)) %>% 
+  arrange(LatentClass) %>% 
+  select(cs)
+
+colnames(pp_plots) <- paste0(colnames(pp_plots[,1:ncol(pp_plots)-1]), glue(" ({c_size[1:ncol(pp_plots)-1,]}%)")) 
+
+plot_data <- pp_plots %>% 
+  rename("param" = ncol(pp_plots)) %>% 
+  reshape2::melt(id.vars = "param") %>% 
+  mutate(param = fct_inorder(param))
+
+name <- model$input$title
+
+p <- plot_data %>%
+  ggplot(
+    aes(
+      x = param,
+      y = value,
+      shape = variable,
+      colour = variable,
+      lty = variable,
+      group = variable
+    )
+  ) +
+  geom_point(size = 4) + geom_line(linewidth = 1) +
+  ylim(0,1) +
+  scale_x_discrete("") +
+  labs(title = glue("{name} Item Probability Plot"), y = "Probability") +
+  theme_cowplot() +
+  theme(
+    text = element_text(family = "serif", size = 12),
+    legend.text = element_text(family = "serif", size = 12),
+    legend.key.width = unit(0, "line"),
+    legend.title = element_blank(),
+    legend.position = "top",    
+    axis.text.x = element_text(
+      vjust = 1
+    )
+  )
+  
+  return(p)
+}

@@ -1,0 +1,244 @@
+overlay_plot <- function(m1,m2) {
+
+process_data <- function(data, model_name, class_counts) {
+  df <- data %>%
+    mutate(model = factor(model_name)) %>%
+    mutate(LatentClass = sub("^", "Class ", LatentClass)) %>%
+    filter(category == 2) %>%
+    select(est, LatentClass, param, model) %>%
+    pivot_wider(names_from = LatentClass, values_from = est) %>%
+    relocate(param, model, .after = last_col())
+
+  size_df <- as.data.frame(class_counts$modelEstimated$proportion) %>%
+    rename("cs" = 1) %>%
+    mutate(cs = round(cs * 100, 2))
+
+  colnames(df) <- paste0(colnames(df[, 1:nrow(size_df)]), glue(" ({size_df[1:nrow(size_df),]}%)"))
+  
+  df <- df %>% 
+      rename("model" = ncol(df),
+             "param" = ncol(df)-1)
+  
+  return(df)
+}
+
+# Process data for 'M1' and 'M2'
+c <- process_data(data = m1$parameters$probability.scale, model_name = "M1", class_counts = m1$class_counts)
+
+conx <- process_data(data = m2$parameters$probability.scale, model_name = "M2", class_counts = m2$class_counts)
+
+# Combine data for plotting
+plot_data <- rbind(
+  c %>% melt(id.vars = c("param", "model")),
+  conx %>% melt(id.vars = c("param", "model"))
+)  %>% 
+  mutate(param = fct_inorder(param))
+
+# Count unique levels of variable
+num_levels <- m1$summaries$NLatentClasses
+
+# Generate colors, shapes, and line types
+colors <- rep(scales::hue_pal()(num_levels), length.out = num_levels * 2)
+shapes <- rep(14:(14 + num_levels-1),2)
+line_types <- rep(5:(5 + num_levels-1),2)
+
+# Plot title
+name <- "Overlay Plot"
+
+# Plotting
+p <- plot_data %>%
+  ggplot(
+    aes(
+      x = param,
+      y = value,
+      shape = model:variable,
+      group = interaction(model, variable),
+      linetype = model:variable,
+        color = model:variable
+    )
+  ) +
+  geom_point(size = 4) +
+  geom_line(linewidth = 1) +
+  scale_shape_manual(values = shapes) +
+  scale_linetype_manual(values = line_types) +
+  scale_color_manual(values = colors) +
+  ylim(0, 1) +
+  #scale_x_discrete("") +
+  labs(title = glue("{name} Probability Plot"), y = "Probability") +
+  theme_cowplot() +
+  theme(
+    text = element_text(family = "serif", size = 12),
+    legend.text = element_text(family = "serif", size = 12),
+    legend.key.width = unit(0, "line"),
+    legend.title = element_blank(),
+    legend.position = "right",
+    axis.text.x = element_text(
+      vjust = 1
+    )
+  )
+p
+return(p)
+}
+
+
+overlay_plot_apa12 <- function(m1,m2, title, item_labels) {
+
+process_data <- function(data, model_name, class_counts) {
+  df <- data %>%
+    mutate(model = factor(model_name)) %>%
+    mutate(LatentClass = sub("^", "Class ", LatentClass)) %>%
+    filter(category == 2) %>%
+    select(est, LatentClass, param, model) %>%
+    pivot_wider(names_from = LatentClass, values_from = est) %>%
+    relocate(param, model, .after = last_col())
+
+  size_df <- as.data.frame(class_counts$modelEstimated$proportion) %>%
+    rename("cs" = 1) %>%
+    mutate(cs = round(cs * 100, 2))
+
+  colnames(df) <- paste0(colnames(df[, 1:nrow(size_df)]), glue(" ({size_df[1:nrow(size_df),]}%)"))
+  
+  df <- df %>% 
+      rename("model" = ncol(df),
+             "param" = ncol(df)-1)
+  
+  return(df)
+}
+
+# Process data for 'M1' and 'M2'
+c <- process_data(data = m1$parameters$probability.scale, model_name = "M1", class_counts = m1$class_counts)
+
+conx <- process_data(data = m2$parameters$probability.scale, model_name = "M2", class_counts = m2$class_counts)
+
+# Combine data for plotting
+plot_data <- rbind(
+  c %>% melt(id.vars = c("param", "model")),
+  conx %>% melt(id.vars = c("param", "model"))
+)  %>% 
+  mutate(param = fct_inorder(param)) %>% 
+  mutate(items = factor(param, labels = item_labels))
+
+# Count unique levels of variable
+num_levels <- m1$summaries$NLatentClasses
+
+# Generate colors, shapes, and line types
+shapes <- rep(14:(14 + num_levels-1),2)
+line_types <- rep(5:(5 + num_levels-1),2)
+
+
+# Plotting
+p <- plot_data %>%
+  ggplot(
+    aes(
+      x = items,
+      y = value,
+      shape = model:variable,
+      group = interaction(model, variable),
+      linetype = model:variable
+    )
+  ) +
+  geom_point(size = 4, color = "black") +
+  geom_line(linewidth = 1, color = "black") +
+  scale_shape_manual(values = shapes) +
+  scale_linetype_manual(values = line_types) +
+  ylim(0, 1) +
+  scale_x_discrete("") +
+  labs(title = title, subtitle = "Overlay Probability Plot", y = "Probability") +
+  theme_cowplot() +
+  guides(color = guide_legend(ncol = 5, byrow = TRUE)) +
+  theme(
+    text = element_text(family = "sans", size = 12),
+    legend.text = element_text(family = "sans", size = 12),
+    legend.key.width = unit(5, "line"),
+    legend.title = element_blank(),
+    legend.position = "right",
+    axis.text.x = element_text(vjust = 1),
+    plot.subtitle = element_text(face = "italic", size = 15),
+    plot.title = element_text(size = 15)
+  )
+p
+return(p)
+
+}
+
+
+
+overlay_plot_apa13 <- function(m1,m3, title, item_labels) {
+
+process_data <- function(data, model_name, class_counts) {
+  df <- data %>%
+    mutate(model = factor(model_name)) %>%
+    mutate(LatentClass = sub("^", "Class ", LatentClass)) %>%
+    filter(category == 2) %>%
+    select(est, LatentClass, param, model) %>%
+    pivot_wider(names_from = LatentClass, values_from = est) %>%
+    relocate(param, model, .after = last_col())
+
+  size_df <- as.data.frame(class_counts$modelEstimated$proportion) %>%
+    rename("cs" = 1) %>%
+    mutate(cs = round(cs * 100, 2))
+
+  colnames(df) <- paste0(colnames(df[, 1:nrow(size_df)]), glue(" ({size_df[1:nrow(size_df),]}%)"))
+  
+  df <- df %>% 
+      rename("model" = ncol(df),
+             "param" = ncol(df)-1)
+  
+  return(df)
+}
+
+# Process data for 'M1' and 'M3'
+c <- process_data(data = m1$parameters$probability.scale, model_name = "M1", class_counts = m1$class_counts)
+
+conx <- process_data(data = m3$parameters$probability.scale, model_name = "M3", class_counts = m3$class_counts)
+
+# Combine data for plotting
+plot_data <- rbind(
+  c %>% melt(id.vars = c("param", "model")),
+  conx %>% melt(id.vars = c("param", "model"))
+)  %>% 
+  mutate(param = fct_inorder(param)) %>% 
+  mutate(items = factor(param, labels = item_labels))
+
+# Count unique levels of variable
+num_levels <- m1$summaries$NLatentClasses
+
+# Generate colors, shapes, and line types
+shapes <- rep(14:(14 + num_levels-1),2)
+line_types <- rep(1:2, each = num_levels)
+
+
+# Plotting
+p <- plot_data %>%
+  ggplot(
+    aes(
+      x = items,
+      y = value,
+      shape = model:variable,
+      group = interaction(model, variable),
+      linetype = model:variable
+    )
+  ) +
+  geom_point(size = 4, color = "black") +
+  geom_line(linewidth = 1, color = "black") +
+  scale_shape_manual(values = shapes) +
+  scale_linetype_manual(values = line_types) +
+  ylim(0, 1) +
+  scale_x_discrete("") +
+  labs(title = title, subtitle = "Overlay Probability Plot", y = "Probability") +
+  theme_cowplot() +
+  guides(color = guide_legend(ncol = 5, byrow = TRUE)) +
+  theme(
+    text = element_text(family = "sans", size = 12),
+    legend.text = element_text(family = "sans", size = 12),
+    legend.key.width = unit(5, "line"),
+    legend.title = element_blank(),
+    legend.position = "right",
+    axis.text.x = element_text(vjust = 1),
+    plot.subtitle = element_text(face = "italic", size = 15),
+    plot.title = element_text(size = 15)
+  )
+p
+return(p)
+
+}

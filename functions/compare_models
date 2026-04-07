@@ -1,0 +1,49 @@
+compare_models <- function(m0, m1) {
+
+# Define function to compute likelihood ratio test
+compute_lrt <- function(model0, model1) {
+  LL0 <- model0$summaries$LL
+  LL1 <- model1$summaries$LL
+  npar0 <- model0$summaries$Parameters
+  npar1 <- model1$summaries$Parameters
+  lrt_statistic <- (-2*(LL0-LL1))
+  df <- npar1-npar0
+  p_value <- round(pchisq(lrt_statistic, df, lower.tail = FALSE),3)
+  return(list(lrt_statistic = lrt_statistic, df = df, p_value = p_value))
+}
+
+# Perform likelihood ratio tests for each test data
+
+is_mplus_model <- function(object) {
+  inherits(object, c("mplus.model.list"))
+}
+
+if (is_mplus_model(m0) && is_mplus_model(m1)) {
+  # For mplus.model.list, use map2
+  results <- map2(m0, m1, compute_lrt)
+  
+  # Prepare result dataframe for mplus.model.list
+  result_df <- map2_df(names(results), results, ~{
+    data.frame(var = .x,
+               lrt = .y$lrt_statistic,
+               df = .y$df,
+               pval = round(.y$p_value, 3)) %>% 
+      mutate(var = str_remove_all(var, ".*_|.out"))
+  })
+} else {
+  # For single mplus.model, use compute_lrt directly
+  result <- compute_lrt(m0, m1)
+  
+  # Prepare result dataframe for single mplus.model
+  result_df <- data.frame(var = paste0(deparse(substitute(m0)), " vs. ", deparse(substitute(m1))),
+                          lrt = result$lrt_statistic,
+                          df = result$df,
+                          pval = round(result$p_value, 3))
+} 
+
+# Create gt table
+gt_result <- result_df %>%
+  gt()
+
+gt_result
+}

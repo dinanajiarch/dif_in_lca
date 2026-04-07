@@ -1,0 +1,115 @@
+
+    library(MplusAutomation)
+    library(tidyverse)
+    library(reshape2)
+    library(cowplot)
+    library(glue)
+    
+
+
+plot_lca <-
+  function(model_name) {
+
+    
+pp_plots <- data.frame(model_name$parameters$probability.scale) %>% 
+  mutate(LatentClass = sub("^","Class ", LatentClass)) %>% 
+  filter(category == 2) %>% 
+  dplyr::select(est, LatentClass, param) %>% 
+  pivot_wider(names_from = LatentClass, values_from = est) %>% 
+  relocate(param, .after = last_col())
+
+c_size <- as.data.frame(model_name$class_counts$modelEstimated$proportion) %>% 
+  rename("cs" = 1) %>% 
+  mutate(cs = round(cs * 100, 2))
+
+colnames(pp_plots) <- paste0(colnames(pp_plots[,1:ncol(pp_plots)-1]), glue(" ({c_size[1:ncol(pp_plots)-1,]}%)")) 
+
+plot_data <- pp_plots %>% 
+  rename("param" = ncol(pp_plots)) %>% 
+  reshape2::melt(id.vars = "param") %>% 
+  mutate(param = fct_inorder(param))
+
+name <- model_name$input$title
+
+p <- plot_data %>%
+  ggplot(
+    aes(
+      x = param,
+      y = value,
+      shape = variable,
+      colour = variable,
+      lty = variable,
+      group = variable
+    )
+  ) +
+  geom_point(size = 4) + geom_line(linewidth = 1) +
+  geom_hline(yintercept = c(0.7, 0.3))+
+  ylim(0,1) +
+  scale_x_discrete("") +
+  labs(title = glue("{name} Probability Plot"), y = "Probability") +
+  theme_cowplot() +
+  theme(
+    text = element_text(family = "serif", size = 12),
+    legend.text = element_text(family = "serif", size = 12),
+    legend.key.width = unit(0, "line"),
+    legend.title = element_blank(),
+    legend.position = "top",    
+    axis.text.x = element_text(
+      vjust = 1
+    )
+  )
+p
+return(p)
+}
+
+
+plot_conx <-
+  function(model, item_labels, class_labels, title) {
+
+  
+plot_data <- data.frame(model$parameters$probability.scale) %>% 
+ # mutate(LatentClass = sub("^","Class ", LatentClass)) %>% 
+  filter(category == 2) %>% 
+  filter(LatentClass != "Categorical.Latent.Variables") %>%
+  mutate(items = fct_reorder(param, param),
+         class = fct_inorder(LatentClass)) %>% 
+  mutate(items = factor(items, labels = item_labels),
+         class = factor(class, labels = class_labels)) %>% 
+  dplyr::select(est, class, items)
+
+
+## Plot data
+p <- plot_data %>%
+  ggplot(aes(
+    x = items,
+    y = est,
+    shape = class,
+    colour = class,
+    lty = class,
+    group = class
+  )) +
+  geom_point(size = 4) + geom_line(size = 1) +
+  ylim(0, 1) +
+  scale_x_discrete(
+    "",
+    labels = function(x)
+      str_wrap(x, width = 10)
+  ) +
+  labs(title = title,
+       subtitle = "Latent Class Probability Plot",
+       y = "Probability") +
+  theme_cowplot() +
+  scale_color_grey(start = 0, end = 0) +
+  theme(
+    text = element_text(family = "sans", size = 12),
+    legend.text = element_text(family = "sans", size = 12),
+    legend.key.width = unit(0, "line"),
+    legend.title = element_blank(),
+    legend.position = "bottom",
+    axis.text.x = element_text(vjust = 1),
+    plot.subtitle = element_text(face = "italic", size = 15),
+    plot.title = element_text(size = 15)
+  )
+
+return(p)
+}

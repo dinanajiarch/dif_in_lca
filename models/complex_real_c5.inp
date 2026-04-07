@@ -1,0 +1,17 @@
+TITLE:
+Complex, Real, 5-Class
+DATA:
+FILE = "C:/Users/dnajiarch/Box/Dissertation/detect_dif/models/
+complex_real_c5.dat"; 
+VARIABLE:
+NAMES = u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 c; 
+ MISSING=.;
+ categorical = u1-u10;  
+     usevar = u1-u10;
+     classes = c(5);
+ANALYSIS:
+estimator = mlr; 
+    type = mixture;
+    starts = 500 100;
+OUTPUT:
+sampstat;

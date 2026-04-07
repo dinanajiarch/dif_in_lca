@@ -1,0 +1,3415 @@
+---
+title: "Unmodeled DIF in Latent Class Analysis: Consequences for Class Enumeration"
+author: ""
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+library(tidyverse)
+library(glue)
+library(MplusAutomation)
+library(here)
+library(gt)
+library(janitor)
+library(gridExtra)
+library(ggpubr)
+library(parallel)
+library(cowplot)
+library(effectsize)
+library(broom)
+library(tools)
+library(apaTables)
+library(patchwork)
+```
+
+
+# Enumeration Tables
+
+*Note*: The last column in the enumeration tables in VLMR is NA, which indicates no nonsignificant *p*-value was found for that condition across replications.
+
+## Realistic
+
+### Complex
+
+```{r, echo = FALSE, eval = TRUE}
+# Define the logits for the first example as a list
+logits <- data.frame(
+  C1 = c(3.19064, 3.10788, 3.83448, 3.86343, 2.00700, 2.92895, 1.43653, 2.75844, 3.01256, 1.89987),
+  C2 = c(1.16631, -0.15619, 3.77549, -0.51226, -1.58301, 0.11202, -2.15707, 0.57930, -0.28985, -0.19538),
+  C3 = c(-0.56244, -0.06104, -0.74264, 0.58389, -1.44290, -15.0, 0.17762, 2.74127, 1.67876, 2.60714),
+  C4 = c(-2.13783, -3.46779, -3.17454, -2.12725, -2.57868, -3.62206, -3.27125, -0.67695, -1.86035, -1.42219),
+  C5 = c(-0.69130, -1.27803, -0.05214, 1.48891, 1.99572, 1.75719, -0.18973, 1.46395, 0.41521, 0.38082)
+)
+
+
+# Convert logits to probabilities using the sigmoid function
+sigmoid <- function(x) {
+  1 / (1 + exp(x))
+}
+
+
+probabilities <- lapply(logits, sigmoid) %>% 
+  as.data.frame() 
+
+df <- probabilities %>% 
+  mutate(Indicator = rep(1:10)) %>%
+  pivot_longer(cols = -c(Indicator), names_to = "Class", values_to = "Probability")
+
+
+# Define APA-appropriate color palette (muted colors)
+apa_colors <- c("aBIC" = "#1b9e77", "AWE" = "#d95f02", "BIC" = "#7570b3", 
+                "CAIC" = "#e7298a", "VLMR" = "#66a61e")
+
+ggplot(df, aes(x = factor(Indicator), y = Probability, group = Class, color = Class)) +
+  geom_line(size = 1) + 
+  geom_point(size = 3) +
+  geom_hline(yintercept = c(0.7, 0.3))+
+  labs(title = "Realistic Separation (Complex)",
+       x = "Indicators", y = "Probabilities") +
+  scale_color_manual(values = setNames(apa_colors, unique(df$class))) +
+  ylim(0,1)+
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 18, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 17, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 15, face = "bold"),  
+    axis.text = element_text(size = 15, color = "black"),  
+    strip.text = element_text(size = 15, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 15, face = "bold"),  
+    legend.text = element_text(size = 15),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )+
+  facet_wrap(~Class)
+
+ggplot(df, aes(x = factor(Indicator), y = Probability, group = Class, color = Class)) +
+  geom_line(size = 1) + 
+  geom_point(size = 3) +
+  geom_hline(yintercept = c(0.7, 0.3))+
+  labs(title = "Realistic Separation (Complex)",
+       x = "Indicators", y = "Probabilities") +
+  scale_color_manual(values = setNames(apa_colors, unique(df$class))) +
+  ylim(0,1)+
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 18, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 17, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 15, face = "bold"),  
+    axis.text = element_text(size = 15, color = "black"),  
+    strip.text = element_text(size = 15, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 15, face = "bold"),  
+    legend.text = element_text(size = 15),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+```
+
+
+```{r, eval = FALSE, include= FALSE}
+source(here("functions","process_enum"))
+model_name <- "complex"
+sep_cond <- "realistic"
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "complex", "p1", "m1", "realistic")
+# Extracted summary of all replications across folders
+extracted_index_com_p1m1 <- valid_reps(parent_dir)
+enum_table_com_p1m1 <- calculate_accuracy_com(extracted_index_com_p1m1) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "complex", "p2", "m1", "realistic")
+# Extracted summary of all replications across folders
+extracted_index_com_p2m1 <- valid_reps(parent_dir) 
+enum_table_com_p2m1 <- calculate_accuracy_com(extracted_index_com_p2m1) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "complex", "p2", "m2", "realistic")
+# Extracted summary of all replications across folders
+extracted_index_com_p2m2 <- valid_reps(parent_dir) 
+enum_table_com_p2m2 <- calculate_accuracy_com(extracted_index_com_p2m2) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "complex", "p3", "m1", "realistic")
+# Extracted summary of all replications across folders
+extracted_index_com_p3m1 <- valid_reps(parent_dir) 
+enum_table_com_p3m1 <- calculate_accuracy_com(extracted_index_com_p3m1) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "complex", "p3", "m2", "realistic")
+# Extracted summary of all replications across folders
+extracted_index_com_p3m2 <- valid_reps(parent_dir) 
+enum_table_com_p3m2 <- calculate_accuracy_com(extracted_index_com_p3m2) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "complex", "p3", "m3", "realistic")
+# Extracted summary of all replications across folders
+extracted_index_com_p3m3 <- valid_reps(parent_dir) 
+enum_table_com_p3m3 <- calculate_accuracy_com(extracted_index_com_p3m3) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "complex", "p4", "m1", "realistic")
+# Extracted summary of all replications across folders
+extracted_index_com_p4m1 <- valid_reps(parent_dir) 
+enum_table_com_p4m1 <- calculate_accuracy_com(extracted_index_com_p4m1) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "complex", "p4", "m2", "realistic")
+# Extracted summary of all replications across folders
+extracted_index_com_p4m2 <- valid_reps(parent_dir) 
+enum_table_com_p4m2 <- calculate_accuracy_com(extracted_index_com_p4m2) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "complex", "p4", "m3", "realistic")
+# Extracted summary of all replications across folders
+extracted_index_com_p4m3 <- valid_reps(parent_dir) 
+enum_table_com_p4m3 <- calculate_accuracy_com(extracted_index_com_p4m3) 
+```
+
+```{r, eval = FALSE, include= FALSE}
+# Save files
+total_com1 <- as.data.frame(rbind(enum_table_com_p1m1$combined_percentages, 
+                                  enum_table_com_p2m1$combined_percentages,
+                                  enum_table_com_p2m2$combined_percentages))  %>% 
+  mutate(
+    p = sub("(p\\d)m\\d", "\\1", sim_model), 
+    m = sub("p\\dm(\\d)", "m\\1", sim_model)  
+  ) 
+
+total_com2 <- as.data.frame(rbind(enum_table_com_p3m1$combined_percentages, 
+                                  enum_table_com_p3m2$combined_percentages, 
+                                  enum_table_com_p3m3$combined_percentages,
+                                  enum_table_com_p4m1$combined_percentages, 
+                                  enum_table_com_p4m2$combined_percentages, 
+                                  enum_table_com_p4m3$combined_percentages)) %>% 
+  mutate(
+    p = sub("(p\\d)m\\d", "\\1", sim_model), 
+    m = sub("p\\dm(\\d)", "m\\1", sim_model)  
+  ) 
+
+
+#write_csv(total_com1, here("tables", "real_com1.csv"))
+#write_csv(total_com2, here("tables", "real_com2.csv"))
+```
+
+*Note*: The last column in VLMR is NA, which indicates no nonsignificant p-value was found for that condition across replications.
+
+```{r}
+source(here("functions","process_enum"))
+total_com1 <- read_csv(here("tables", "real_com1.csv")) %>% 
+  select(-sim_model) 
+  
+
+total_com2 <- read_csv(here("tables", "real_com2.csv")) %>% 
+  select(-sim_model) %>% 
+  mutate(p = case_when(
+    p == "p3" ~ "p3a",
+    p == "p4" ~ "p3b",
+    TRUE ~ p
+  ))
+
+table_com1 <- gt_table_com(total_com1)
+table_com2 <- gt_table_com(total_com2)
+
+table_com1
+table_com2
+
+#gtsave(table_com1, here("tables", "table_com1.docx"))
+#gtsave(table_com2, here("tables", "table_com2.docx"))
+```
+
+### Simple
+
+```{r, echo = FALSE, eval = TRUE}
+# Define the logits for the first example as a list
+logits <- data.frame(
+  C1 = c(-2.1, -2.120, -2.737, -4.172, -1.591, -3.187),
+  C2 = c(-.2, -0.329, -0.127, -1.199, 1.591, 1.710),
+  C3 = c(-1.5, -0.738, 0.888, 0.964, 0.039, -15.000),
+  C4 = c(1, 1.547, 3.910, 2.382, 3.483, 15.000)
+)
+
+
+# Convert logits to probabilities using the sigmoid function
+sigmoid <- function(x) {
+  1 / (1 + exp(x))
+}
+
+
+probabilities <- lapply(logits, sigmoid) %>% 
+  as.data.frame() 
+
+df <- probabilities %>% 
+  mutate(Indicator = rep(1:6)) %>%
+  pivot_longer(cols = -c(Indicator), names_to = "Class", values_to = "Probability")
+
+
+# Define APA-appropriate color palette (muted colors)
+apa_colors <- c("aBIC" = "#1b9e77", "AWE" = "#d95f02", "BIC" = "#7570b3", 
+                "CAIC" = "#e7298a", "VLMR" = "#66a61e")
+
+ggplot(df, aes(x = factor(Indicator), y = Probability, group = Class, color = Class)) +
+  geom_line(size = 1) + 
+  geom_point(size = 3) +
+  geom_hline(yintercept = c(0.7, 0.3))+
+  labs(title = "Realistic Separation (Simple)",
+       x = "Indicators", y = "Probabilities") +
+  scale_color_manual(values = setNames(apa_colors, unique(df$class))) +
+  ylim(0,1)+
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 18, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 17, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 15, face = "bold"),  
+    axis.text = element_text(size = 15, color = "black"),  
+    strip.text = element_text(size = 15, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 15, face = "bold"),  
+    legend.text = element_text(size = 15),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  ) +
+  facet_wrap(~Class)
+
+
+ggplot(df, aes(x = factor(Indicator), y = Probability, group = Class, color = Class)) +
+  geom_line(size = 1) + 
+  geom_point(size = 3) +
+  geom_hline(yintercept = c(0.7, 0.3))+
+  labs(title = "Realistic Separation (Simple)",
+       x = "Indicators", y = "Probabilities") +
+  scale_color_manual(values = setNames(apa_colors, unique(df$class))) +
+  ylim(0,1)+
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 18, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 17, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 15, face = "bold"),  
+    axis.text = element_text(size = 15, color = "black"),  
+    strip.text = element_text(size = 15, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 15, face = "bold"),  
+    legend.text = element_text(size = 15),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  ) 
+```
+
+
+```{r, eval = FALSE, include= FALSE}
+source(here("functions","process_enum"))
+
+# Define the parent directory containing all folders
+model_name <- "simple"
+sep_cond <- "realistic"
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "simple", "p1", "m1", "realistic")
+# Extracted summary of all replications across folders
+extracted_index_sim_p1m1 <- valid_reps(parent_dir)
+enum_table_sim_p1m1 <- calculate_accuracy_sim(extracted_index_sim_p1m1) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "simple", "p2", "m1", "realistic")
+# Extracted summary of all replications across folders
+extracted_index_sim_p2m1 <- valid_reps(parent_dir) 
+enum_table_sim_p2m1 <- calculate_accuracy_sim(extracted_index_sim_p2m1) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "simple", "p2", "m2", "realistic")
+# Extracted summary of all replications across folders
+extracted_index_sim_p2m2 <- valid_reps(parent_dir) 
+enum_table_sim_p2m2 <- calculate_accuracy_sim(extracted_index_sim_p2m2) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "simple", "p3", "m1", "realistic")
+# Extracted summary of all replications across folders
+extracted_index_sim_p3m1 <- valid_reps(parent_dir) 
+enum_table_sim_p3m1 <- calculate_accuracy_sim(extracted_index_sim_p3m1) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "simple", "p3", "m2", "realistic")
+# Extracted summary of all replications across folders
+extracted_index_sim_p3m2 <- valid_reps(parent_dir) 
+enum_table_sim_p3m2 <- calculate_accuracy_sim(extracted_index_sim_p3m2) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "simple", "p3", "m3", "realistic")
+# Extracted summary of all replications across folders
+extracted_index_sim_p3m3 <- valid_reps(parent_dir) 
+enum_table_sim_p3m3 <- calculate_accuracy_sim(extracted_index_sim_p3m3) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "simple", "p4", "m1", "realistic")
+# Extracted summary of all replications across folders
+extracted_index_sim_p4m1 <- valid_reps(parent_dir) 
+enum_table_sim_p4m1 <- calculate_accuracy_sim(extracted_index_sim_p4m1) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "simple", "p4", "m2", "realistic")
+# Extracted summary of all replications across folders
+extracted_index_sim_p4m2 <- valid_reps(parent_dir) 
+enum_table_sim_p4m2 <- calculate_accuracy_sim(extracted_index_sim_p4m2) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "simple", "p4", "m3", "realistic")
+# Extracted summary of all replications across folders
+extracted_index_sim_p4m3 <- valid_reps(parent_dir) 
+enum_table_sim_p4m3 <- calculate_accuracy_sim(extracted_index_sim_p4m3) 
+```
+
+```{r, eval = FALSE, include= FALSE}
+# Save Files
+total_sim1 <- as.data.frame(rbind(enum_table_sim_p1m1$combined_percentages, 
+                                  enum_table_sim_p2m1$combined_percentages, 
+                                  enum_table_sim_p2m2$combined_percentages)) %>% 
+  mutate(
+    p = sub("(p\\d)m\\d", "\\1", sim_model), 
+    m = sub("p\\dm(\\d)", "m\\1", sim_model)  
+  ) 
+
+total_sim2 <- as.data.frame(rbind(enum_table_sim_p3m1$combined_percentages, 
+                                  enum_table_sim_p3m2$combined_percentages, 
+                                  enum_table_sim_p3m3$combined_percentages,
+                                  enum_table_sim_p4m1$combined_percentages, 
+                                  enum_table_sim_p4m2$combined_percentages, 
+                                  enum_table_sim_p4m3$combined_percentages))%>% 
+  mutate(
+    p = sub("(p\\d)m\\d", "\\1", sim_model), 
+    m = sub("p\\dm(\\d)", "m\\1", sim_model)  
+  ) 
+
+
+#write_csv(total_sim1, here("tables", "real_sim1.csv"))
+#write_csv(total_sim2, here("tables", "real_sim2.csv"))
+```
+
+*Note*: The last column in VLMR is NA, which indicates no nonsignificant p-value was found for that condition across replications.
+
+```{r}
+source(here("functions","process_enum"))
+total_sim1 <- read_csv(here("tables", "real_sim1.csv")) %>% 
+  select(-sim_model)
+
+total_sim2 <- read_csv(here("tables", "real_sim2.csv")) %>% 
+  select(-sim_model) %>% 
+  mutate(p = case_when(
+    p == "p3" ~ "p3a",
+    p == "p4" ~ "p3b",
+    TRUE ~ p
+  ))
+
+
+table_sim1 <- gt_table_sim(total_sim1)
+table_sim2 <- gt_table_sim(total_sim2)
+
+table_sim1
+table_sim2
+
+#gtsave(table_sim1, here("tables", "table_sim1.docx"))
+#gtsave(table_sim2, here("tables", "table_sim2.docx"))
+```
+
+## Ideal
+
+### Complex
+
+```{r, echo = FALSE, eval = TRUE}
+# Define the logits for the first example as a list
+logits <- data.frame(
+  C1 = c(-2,-2,-2,-2,-2,-2,-2,-2,-2,-2),
+  C2 = c(-2,-2,-2,-2,-2,2,2,2,2,2),
+  C3 = c(2,2,2,-2,-2,-2,2,2,2,2),
+  C4 = c(2,2,2,2,2,-2,-2,-2,-2,-2),
+  C5 = c(2,2,2,2,2,2,2,2,2,2)
+)
+
+
+# Convert logits to probabilities using the sigmoid function
+sigmoid <- function(x) {
+  1 / (1 + exp(x))
+}
+
+
+probabilities <- lapply(logits, sigmoid) %>% 
+  as.data.frame() 
+
+df <- probabilities %>% 
+  mutate(Indicator = rep(1:10)) %>%
+  pivot_longer(cols = -c(Indicator), names_to = "Class", values_to = "Probability")
+
+# Define APA-appropriate color palette (muted colors)
+apa_colors <- c("aBIC" = "#1b9e77", "AWE" = "#d95f02", "BIC" = "#7570b3", 
+                "CAIC" = "#e7298a", "VLMR" = "#66a61e")
+
+
+ggplot(df, aes(x = factor(Indicator), y = Probability, group = Class, color = Class)) +
+  geom_line(size = 1) + 
+  geom_point(size = 3) +
+  geom_hline(yintercept = c(0.7, 0.3))+
+  labs(title = "High Separation (Complex)",
+       x = "Indicators", y = "Probabilities") +
+  scale_color_manual(values = setNames(apa_colors, unique(df$class))) +
+  ylim(0,1)+
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 18, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 17, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 15, face = "bold"),  
+    axis.text = element_text(size = 15, color = "black"),  
+    strip.text = element_text(size = 15, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 15, face = "bold"),  
+    legend.text = element_text(size = 15),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  ) 
+
+ggplot(df, aes(x = factor(Indicator), y = Probability, group = Class, color = Class)) +
+  geom_line(size = 1) + 
+  geom_point(size = 3) +
+  geom_hline(yintercept = c(0.7, 0.3))+
+  labs(title = "High Separation (Complex)",
+       x = "Indicators", y = "Probabilities") +
+  scale_color_manual(values = setNames(apa_colors, unique(df$class))) +
+  ylim(0,1)+
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 18, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 17, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 15, face = "bold"),  
+    axis.text = element_text(size = 15, color = "black"),  
+    strip.text = element_text(size = 15, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 15, face = "bold"),  
+    legend.text = element_text(size = 15),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  ) +
+  facet_wrap(~Class)
+```
+
+```{r, eval = FALSE, include= FALSE}
+source(here("functions","process_enum"))
+
+model_name <- "complex"
+sep_cond <- "ideal"
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "complex", "p1", "m1", "ideal")
+# Extracted summary of all replications across folders
+extracted_index_com_p1m1 <- valid_reps(parent_dir)
+enum_table_com_p1m1 <- calculate_accuracy_com(extracted_index_com_p1m1) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "complex", "p2", "m1", "ideal")
+# Extracted summary of all replications across folders
+extracted_index_com_p2m1 <- valid_reps(parent_dir) 
+enum_table_com_p2m1 <- calculate_accuracy_com(extracted_index_com_p2m1) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "complex", "p2", "m2", "ideal")
+# Extracted summary of all replications across folders
+extracted_index_com_p2m2 <- valid_reps(parent_dir) 
+enum_table_com_p2m2 <- calculate_accuracy_com(extracted_index_com_p2m2) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "complex", "p3", "m1", "ideal")
+# Extracted summary of all replications across folders
+extracted_index_com_p3m1 <- valid_reps(parent_dir) 
+enum_table_com_p3m1 <- calculate_accuracy_com(extracted_index_com_p3m1) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "complex", "p3", "m2", "ideal")
+# Extracted summary of all replications across folders
+extracted_index_com_p3m2 <- valid_reps(parent_dir) 
+enum_table_com_p3m2 <- calculate_accuracy_com(extracted_index_com_p3m2) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "complex", "p3", "m3", "ideal")
+# Extracted summary of all replications across folders
+extracted_index_com_p3m3 <- valid_reps(parent_dir) 
+enum_table_com_p3m3 <- calculate_accuracy_com(extracted_index_com_p3m3) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "complex", "p4", "m1", "ideal")
+# Extracted summary of all replications across folders
+extracted_index_com_p4m1 <- valid_reps(parent_dir) 
+enum_table_com_p4m1 <- calculate_accuracy_com(extracted_index_com_p4m1) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "complex", "p4", "m2", "ideal")
+# Extracted summary of all replications across folders
+extracted_index_com_p4m2 <- valid_reps(parent_dir) 
+enum_table_com_p4m2 <- calculate_accuracy_com(extracted_index_com_p4m2) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "complex", "p4", "m3", "ideal")
+# Extracted summary of all replications across folders
+extracted_index_com_p4m3 <- valid_reps(parent_dir) 
+enum_table_com_p4m3 <- calculate_accuracy_com(extracted_index_com_p4m3) 
+```
+
+```{r, eval = FALSE, include= FALSE}
+# Save files
+total_com1 <- as.data.frame(rbind(enum_table_com_p1m1$combined_percentages, 
+                                  enum_table_com_p2m1$combined_percentages,
+                                  enum_table_com_p2m2$combined_percentages))  %>% 
+  mutate(
+    p = sub("(p\\d)m\\d", "\\1", sim_model), 
+    m = sub("p\\dm(\\d)", "m\\1", sim_model)  
+  ) 
+
+total_com2 <- as.data.frame(rbind(enum_table_com_p3m1$combined_percentages, 
+                                  enum_table_com_p3m2$combined_percentages, 
+                                  enum_table_com_p3m3$combined_percentages,
+                                  enum_table_com_p4m1$combined_percentages, 
+                                  enum_table_com_p4m2$combined_percentages, 
+                                  enum_table_com_p4m3$combined_percentages)) %>% 
+  mutate(
+    p = sub("(p\\d)m\\d", "\\1", sim_model), 
+    m = sub("p\\dm(\\d)", "m\\1", sim_model)  
+  ) 
+
+
+#write_csv(total_com1, here("tables", "ideal_com1.csv"))
+#write_csv(total_com2, here("tables", "ideal_com2.csv"))
+```
+
+*Note*: The last column in VLMR is NA, which indicates no nonsignificant p-value was found for that condition across replications.
+
+```{r}
+source(here("functions","process_enum"))
+total_com1 <- read_csv(here("tables", "ideal_com1.csv")) %>% 
+  select(-sim_model)
+
+total_com2 <- read_csv(here("tables", "ideal_com2.csv")) %>% 
+  select(-sim_model) %>% 
+  mutate(p = case_when(
+    p == "p3" ~ "p3a",
+    p == "p4" ~ "p3b",
+    TRUE ~ p
+  ))
+
+table_com1 <- gt_table_com(total_com1)
+table_com2 <- gt_table_com(total_com2)
+
+table_com1
+table_com2
+
+#gtsave(table_com1, here("tables", "table_com1.docx"))
+#gtsave(table_com2, here("tables", "table_com2.docx"))
+```
+
+### Simple
+
+```{r, echo = FALSE, eval = TRUE}
+# Define the logits for the first example as a list
+logits <- data.frame(
+  C1 = c(-2,-2,-2,-2,-2,-2),
+  C2 = c(-2,-2,-2,2,2,2),
+  C3 = c(2,2,2,-2,-2,-2),
+  C4 = c(2,2,2,2,2,2)
+)
+
+
+# Convert logits to probabilities using the sigmoid function
+sigmoid <- function(x) {
+  1 / (1 + exp(x))
+}
+
+
+probabilities <- lapply(logits, sigmoid) %>% 
+  as.data.frame() 
+
+df <- probabilities %>% 
+  mutate(Indicator = rep(1:6)) %>%
+  pivot_longer(cols = -c(Indicator), names_to = "Class", values_to = "Probability")
+
+
+# Define APA-appropriate color palette (muted colors)
+apa_colors <- c("aBIC" = "#1b9e77", "AWE" = "#d95f02", "BIC" = "#7570b3", 
+                "CAIC" = "#e7298a", "VLMR" = "#66a61e")
+
+ggplot(df, aes(x = factor(Indicator), y = Probability, group = Class, color = Class)) +
+  geom_line(size = 1) + 
+  geom_point(size = 3) +
+  geom_hline(yintercept = c(0.7, 0.3))+
+  labs(title = "Ideal Separation (Simple)",
+       x = "Indicators", y = "Probabilities") +
+  scale_color_manual(values = setNames(apa_colors, unique(df$class))) +
+  ylim(0,1)+
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 18, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 17, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 15, face = "bold"),  
+    axis.text = element_text(size = 15, color = "black"),  
+    strip.text = element_text(size = 15, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 15, face = "bold"),  
+    legend.text = element_text(size = 15),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )+
+  facet_wrap(~Class)
+
+ggplot(df, aes(x = factor(Indicator), y = Probability, group = Class, color = Class)) +
+  geom_line(size = 1) + 
+  geom_point(size = 3) +
+  geom_hline(yintercept = c(0.7, 0.3))+
+  labs(title = "Ideal Separation (Simple)",
+       x = "Indicators", y = "Probabilities") +
+  scale_color_manual(values = setNames(apa_colors, unique(df$class))) +
+  ylim(0,1)+
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 18, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 17, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 15, face = "bold"),  
+    axis.text = element_text(size = 15, color = "black"),  
+    strip.text = element_text(size = 15, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 15, face = "bold"),  
+    legend.text = element_text(size = 15),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+```
+
+
+```{r, eval = FALSE, include= FALSE}
+source(here("functions","process_enum"))
+
+# Define the parent directory containing all folders
+model_name <- "simple"
+sep_cond <- "ideal"
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "simple", "p1", "m1", "ideal")
+# Extracted summary of all replications across folders
+extracted_index_sim_p1m1 <- valid_reps(parent_dir)
+enum_table_sim_p1m1 <- calculate_accuracy_sim(extracted_index_sim_p1m1) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "simple", "p2", "m1", "ideal")
+# Extracted summary of all replications across folders
+extracted_index_sim_p2m1 <- valid_reps(parent_dir) 
+enum_table_sim_p2m1 <- calculate_accuracy_sim(extracted_index_sim_p2m1) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "simple", "p2", "m2", "ideal")
+# Extracted summary of all replications across folders
+extracted_index_sim_p2m2 <- valid_reps(parent_dir) 
+enum_table_sim_p2m2 <- calculate_accuracy_sim(extracted_index_sim_p2m2) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "simple", "p3", "m1", "ideal")
+# Extracted summary of all replications across folders
+extracted_index_sim_p3m1 <- valid_reps(parent_dir) 
+enum_table_sim_p3m1 <- calculate_accuracy_sim(extracted_index_sim_p3m1) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "simple", "p3", "m2", "ideal")
+# Extracted summary of all replications across folders
+extracted_index_sim_p3m2 <- valid_reps(parent_dir) 
+enum_table_sim_p3m2 <- calculate_accuracy_sim(extracted_index_sim_p3m2) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "simple", "p3", "m3", "ideal")
+# Extracted summary of all replications across folders
+extracted_index_sim_p3m3 <- valid_reps(parent_dir) 
+enum_table_sim_p3m3 <- calculate_accuracy_sim(extracted_index_sim_p3m3) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "simple", "p4", "m1", "ideal")
+# Extracted summary of all replications across folders
+extracted_index_sim_p4m1 <- valid_reps(parent_dir) 
+enum_table_sim_p4m1 <- calculate_accuracy_sim(extracted_index_sim_p4m1) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "simple", "p4", "m2", "ideal")
+# Extracted summary of all replications across folders
+extracted_index_sim_p4m2 <- valid_reps(parent_dir) 
+enum_table_sim_p4m2 <- calculate_accuracy_sim(extracted_index_sim_p4m2) 
+
+# Define the parent directory containing all folders
+parent_dir <- here("enumeration", "simple", "p4", "m3", "ideal")
+# Extracted summary of all replications across folders
+extracted_index_sim_p4m3 <- valid_reps(parent_dir) 
+enum_table_sim_p4m3 <- calculate_accuracy_sim(extracted_index_sim_p4m3) 
+```
+
+
+```{r, eval = FALSE, include= FALSE}
+# Save files
+total_sim1 <- as.data.frame(rbind(enum_table_sim_p1m1$combined_percentages, 
+                                  enum_table_sim_p2m1$combined_percentages, 
+                                  enum_table_sim_p2m2$combined_percentages)) %>% 
+  mutate(
+    p = sub("(p\\d)m\\d", "\\1", sim_model), 
+    m = sub("p\\dm(\\d)", "m\\1", sim_model)  
+  ) 
+total_sim2 <- as.data.frame(rbind(enum_table_sim_p3m1$combined_percentages, 
+                                  enum_table_sim_p3m2$combined_percentages, 
+                                  enum_table_sim_p3m3$combined_percentages,
+                                  enum_table_sim_p4m1$combined_percentages, 
+                                  enum_table_sim_p4m2$combined_percentages, 
+                                  enum_table_sim_p4m3$combined_percentages))%>% 
+  mutate(
+    p = sub("(p\\d)m\\d", "\\1", sim_model), 
+    m = sub("p\\dm(\\d)", "m\\1", sim_model)  
+  ) 
+
+
+#write_csv(total_sim1, here("tables", "ideal_sim1.csv"))
+#write_csv(total_sim2, here("tables", "ideal_sim2.csv"))
+```
+
+*Note*: The last column in VLMR is NA, which indicates no nonsignificant p-value was found for that condition across replications.
+
+```{r}
+source(here("functions","process_enum"))
+total_sim1 <- read_csv(here("tables", "ideal_sim1.csv")) %>% 
+  select(-sim_model) 
+
+total_sim2 <- read_csv(here("tables", "ideal_sim2.csv")) %>% 
+  select(-sim_model) %>% 
+  mutate(p = case_when(
+    p == "p3" ~ "p3a",
+    p == "p4" ~ "p3b",
+    TRUE ~ p
+  ))
+
+
+table_sim1 <- gt_table_sim(total_sim1)
+table_sim2 <- gt_table_sim(total_sim2)
+
+table_sim1
+table_sim2
+
+#gtsave(table_sim1, here("tables", "table_sim1.docx"))
+#gtsave(table_sim2, here("tables", "table_sim2.docx"))
+```
+
+# Entropy
+
+## Realistic
+
+### Complex
+
+Entropy averaged across replications for true class only.
+
+```{r,  eval = FALSE, include= FALSE}
+source(here("functions","extract_entropy"))
+
+# P1 M1
+parent_dir <- here("enumeration", "complex", "p1", "m1", "realistic")
+entropy_com_p1m1 <- extract_entropy(parent_dir)
+
+# P2 M1
+parent_dir <- here("enumeration", "complex", "p2", "m1", "realistic")
+entropy_com_p2m1 <- extract_entropy(parent_dir)
+
+# P2 M2
+parent_dir <- here("enumeration", "complex", "p2", "m2", "realistic")
+entropy_com_p2m2 <- extract_entropy(parent_dir)
+
+# P3 M1
+parent_dir <- here("enumeration", "complex", "p3", "m1", "realistic")
+entropy_com_p3m1 <- extract_entropy(parent_dir)
+
+# P3 M2
+parent_dir <- here("enumeration", "complex", "p3", "m2", "realistic")
+entropy_com_p3m2 <- extract_entropy(parent_dir)
+
+# P3 M3
+parent_dir <- here("enumeration", "complex", "p3", "m3", "realistic")
+entropy_com_p3m3 <- extract_entropy(parent_dir)
+
+# P4 M1
+parent_dir <- here("enumeration", "complex", "p4", "m1", "realistic")
+entropy_com_p4m1 <- extract_entropy(parent_dir)
+
+# P4 M2
+parent_dir <- here("enumeration", "complex", "p4", "m2", "realistic")
+entropy_com_p4m2 <- extract_entropy(parent_dir)
+
+# P4 M3
+parent_dir <- here("enumeration", "complex", "p4", "m3", "realistic")
+entropy_com_p4m3 <- extract_entropy(parent_dir)
+```
+
+```{r, eval = FALSE, include= FALSE}
+# Save files
+entropy_com1 <- as.data.frame(rbind(entropy_com_p1m1, entropy_com_p2m1, entropy_com_p2m2))  %>% 
+  mutate(
+    p = sub("(p\\d)m\\d", "\\1", sim_model), 
+    m = sub("p\\dm(\\d)", "m\\1", sim_model)  
+  ) 
+
+entropy_com2 <- as.data.frame(rbind(entropy_com_p3m1, 
+                                  entropy_com_p3m2, 
+                                  entropy_com_p3m3,
+                                  entropy_com_p4m1, 
+                                  entropy_com_p4m2, 
+                                  entropy_com_p4m3)) %>% 
+  mutate(
+    p = sub("(p\\d)m\\d", "\\1", sim_model), 
+    m = sub("p\\dm(\\d)", "m\\1", sim_model)  
+  ) 
+
+
+#write_csv(entropy_com1, here("tables", "entropy_real_com1.csv"))
+#write_csv(entropy_com2, here("tables", "entropy_real_com2.csv"))
+```
+
+
+```{r}
+entropy_com1 <- read_csv(here("tables", "entropy_real_com1.csv")) %>% 
+  select(-sim_model)
+
+entropy_com2 <- read_csv(here("tables", "entropy_real_com2.csv")) %>% 
+  select(-sim_model)
+
+summary(entropy_com1$entropy)
+summary(entropy_com2$entropy)
+
+```
+
+### Simple
+
+Entropy averaged across replications for true class only.
+
+```{r,  eval = FALSE, include= FALSE}
+source(here("functions","extract_entropy"))
+
+# P1 M1
+parent_dir <- here("enumeration", "simple", "p1", "m1", "realistic")
+entropy_sim_p1m1 <- extract_entropy(parent_dir)
+
+# P2 M1
+parent_dir <- here("enumeration", "simple", "p2", "m1", "realistic")
+entropy_sim_p2m1 <- extract_entropy(parent_dir)
+
+# P2 M2
+parent_dir <- here("enumeration", "simple", "p2", "m2", "realistic")
+entropy_sim_p2m2 <- extract_entropy(parent_dir)
+
+# P3 M1
+parent_dir <- here("enumeration", "simple", "p3", "m1", "realistic")
+entropy_sim_p3m1 <- extract_entropy(parent_dir)
+
+# P3 M2
+parent_dir <- here("enumeration", "simple", "p3", "m2", "realistic")
+entropy_sim_p3m2 <- extract_entropy(parent_dir)
+
+# P3 M3
+parent_dir <- here("enumeration", "simple", "p3", "m3", "realistic")
+entropy_sim_p3m3 <- extract_entropy(parent_dir)
+
+# P4 M1
+parent_dir <- here("enumeration", "simple", "p4", "m1", "realistic")
+entropy_sim_p4m1 <- extract_entropy(parent_dir)
+
+# P4 M2
+parent_dir <- here("enumeration", "simple", "p4", "m2", "realistic")
+entropy_sim_p4m2 <- extract_entropy(parent_dir)
+
+# P4 M3
+parent_dir <- here("enumeration", "simple", "p4", "m3", "realistic")
+entropy_sim_p4m3 <- extract_entropy(parent_dir)
+```
+
+```{r, eval = FALSE, include= FALSE}
+# Save files
+entropy_sim1 <- as.data.frame(rbind(entropy_sim_p1m1, entropy_sim_p2m1, entropy_sim_p2m2))  %>% 
+  mutate(
+    p = sub("(p\\d)m\\d", "\\1", sim_model), 
+    m = sub("p\\dm(\\d)", "m\\1", sim_model)  
+  ) 
+
+entropy_sim2 <- as.data.frame(rbind(entropy_sim_p3m1, 
+                                  entropy_sim_p3m2, 
+                                  entropy_sim_p3m3,
+                                  entropy_sim_p4m1, 
+                                  entropy_sim_p4m2, 
+                                  entropy_sim_p4m3)) %>% 
+  mutate(
+    p = sub("(p\\d)m\\d", "\\1", sim_model), 
+    m = sub("p\\dm(\\d)", "m\\1", sim_model)  
+  ) 
+
+
+#write_csv(entropy_sim1, here("tables", "entropy_real_sim1.csv"))
+#write_csv(entropy_sim2, here("tables", "entropy_real_sim2.csv"))
+```
+
+```{r}
+entropy_sim1 <- read_csv(here("tables", "entropy_real_sim1.csv")) %>% 
+  select(-sim_model)
+
+entropy_sim2 <- read_csv(here("tables", "entropy_real_sim2.csv")) %>% 
+  select(-sim_model)
+
+summary(entropy_sim1$entropy)
+summary(entropy_sim2$entropy)
+
+```
+
+## Ideal
+
+### Complex
+
+Entropy averaged across replications for true class only.
+
+```{r, eval = FALSE, include= FALSE}
+source(here("functions","extract_entropy"))
+
+# P1 M1
+parent_dir <- here("enumeration", "complex", "p1", "m1", "ideal")
+entropy_com_p1m1 <- extract_entropy(parent_dir)
+
+# P2 M1
+parent_dir <- here("enumeration", "complex", "p2", "m1", "ideal")
+entropy_com_p2m1 <- extract_entropy(parent_dir)
+
+# P2 M2
+parent_dir <- here("enumeration", "complex", "p2", "m2", "ideal")
+entropy_com_p2m2 <- extract_entropy(parent_dir)
+
+# P3 M1
+parent_dir <- here("enumeration", "complex", "p3", "m1", "ideal")
+entropy_com_p3m1 <- extract_entropy(parent_dir)
+
+# P3 M2
+parent_dir <- here("enumeration", "complex", "p3", "m2", "ideal")
+entropy_com_p3m2 <- extract_entropy(parent_dir)
+
+# P3 M3
+parent_dir <- here("enumeration", "complex", "p3", "m3", "ideal")
+entropy_com_p3m3 <- extract_entropy(parent_dir)
+
+# P4 M1
+parent_dir <- here("enumeration", "complex", "p4", "m1", "ideal")
+entropy_com_p4m1 <- extract_entropy(parent_dir)
+
+# P4 M2
+parent_dir <- here("enumeration", "complex", "p4", "m2", "ideal")
+entropy_com_p4m2 <- extract_entropy(parent_dir)
+
+# P4 M3
+parent_dir <- here("enumeration", "complex", "p4", "m3", "ideal")
+entropy_com_p4m3 <- extract_entropy(parent_dir)
+```
+
+```{r, eval = FALSE, include= FALSE}
+# Save files
+entropy_com1 <- as.data.frame(rbind(entropy_com_p1m1, entropy_com_p2m1, entropy_com_p2m2))  %>% 
+  mutate(
+    p = sub("(p\\d)m\\d", "\\1", sim_model), 
+    m = sub("p\\dm(\\d)", "m\\1", sim_model)  
+  ) 
+
+entropy_com2 <- as.data.frame(rbind(entropy_com_p3m1, 
+                                  entropy_com_p3m2, 
+                                  entropy_com_p3m3,
+                                  entropy_com_p4m1, 
+                                  entropy_com_p4m2, 
+                                  entropy_com_p4m3)) %>% 
+  mutate(
+    p = sub("(p\\d)m\\d", "\\1", sim_model), 
+    m = sub("p\\dm(\\d)", "m\\1", sim_model)  
+  ) 
+
+
+#write_csv(entropy_com1, here("tables", "entropy_ideal_com1.csv"))
+#write_csv(entropy_com2, here("tables", "entropy_ideal_com2.csv"))
+```
+
+```{r}
+entropy_com1 <- read_csv(here("tables", "entropy_ideal_com1.csv")) %>% 
+  select(-sim_model)
+
+entropy_com2 <- read_csv(here("tables", "entropy_ideal_com2.csv")) %>% 
+  select(-sim_model)
+
+summary(entropy_com1$entropy)
+summary(entropy_com2$entropy)
+
+```
+
+### Simple
+
+Entropy averaged across replications for true class only.
+
+```{r, eval = FALSE, include= FALSE}
+source(here("functions","extract_entropy"))
+
+# P1 M1
+parent_dir <- here("enumeration", "simple", "p1", "m1", "ideal")
+entropy_sim_p1m1 <- extract_entropy(parent_dir)
+
+# P2 M1
+parent_dir <- here("enumeration", "simple", "p2", "m1", "ideal")
+entropy_sim_p2m1 <- extract_entropy(parent_dir)
+
+# P2 M2
+parent_dir <- here("enumeration", "simple", "p2", "m2", "ideal")
+entropy_sim_p2m2 <- extract_entropy(parent_dir)
+
+# P3 M1
+parent_dir <- here("enumeration", "simple", "p3", "m1", "ideal")
+entropy_sim_p3m1 <- extract_entropy(parent_dir)
+
+# P3 M2
+parent_dir <- here("enumeration", "simple", "p3", "m2", "ideal")
+entropy_sim_p3m2 <- extract_entropy(parent_dir)
+
+# P3 M3
+parent_dir <- here("enumeration", "simple", "p3", "m3", "ideal")
+entropy_sim_p3m3 <- extract_entropy(parent_dir)
+
+# P4 M1
+parent_dir <- here("enumeration", "simple", "p4", "m1", "ideal")
+entropy_sim_p4m1 <- extract_entropy(parent_dir)
+
+# P4 M2
+parent_dir <- here("enumeration", "simple", "p4", "m2", "ideal")
+entropy_sim_p4m2 <- extract_entropy(parent_dir)
+
+# P4 M3
+parent_dir <- here("enumeration", "simple", "p4", "m3", "ideal")
+entropy_sim_p4m3 <- extract_entropy(parent_dir)
+```
+
+```{r, eval = FALSE, include= FALSE}
+# Save files
+entropy_sim1 <- as.data.frame(rbind(entropy_sim_p1m1, entropy_sim_p2m1, entropy_sim_p2m2))  %>% 
+  mutate(
+    p = sub("(p\\d)m\\d", "\\1", sim_model), 
+    m = sub("p\\dm(\\d)", "m\\1", sim_model)  
+  ) 
+
+entropy_sim2 <- as.data.frame(rbind(entropy_sim_p3m1, 
+                                  entropy_sim_p3m2, 
+                                  entropy_sim_p3m3,
+                                  entropy_sim_p4m1, 
+                                  entropy_sim_p4m2, 
+                                  entropy_sim_p4m3)) %>% 
+  mutate(
+    p = sub("(p\\d)m\\d", "\\1", sim_model), 
+    m = sub("p\\dm(\\d)", "m\\1", sim_model)  
+  ) 
+
+
+#write_csv(entropy_sim1, here("tables", "entropy_ideal_sim1.csv"))
+#write_csv(entropy_sim2, here("tables", "entropy_ideal_sim2.csv"))
+```
+
+```{r}
+entropy_sim1 <- read_csv(here("tables", "entropy_ideal_sim1.csv")) %>% 
+  select(-sim_model)
+
+entropy_sim2 <- read_csv(here("tables", "entropy_ideal_sim2.csv")) %>% 
+  select(-sim_model)
+
+summary(entropy_sim1$entropy)
+summary(entropy_sim2$entropy)
+
+```
+
+## Total Entropy 
+
+```{r}
+ideal_com1 <- read_csv(here("tables", "entropy_ideal_com1.csv")) %>% 
+  filter(k == 5)
+ideal_com2 <- read_csv(here("tables", "entropy_ideal_com2.csv"))%>% 
+  filter(k == 5)
+ideal_sim1 <- read_csv(here("tables", "entropy_ideal_sim1.csv"))%>% 
+  filter(k == 4)
+ideal_sim2 <- read_csv(here("tables", "entropy_ideal_sim2.csv"))%>% 
+  filter(k == 4)
+
+real_com1 <- read_csv(here("tables", "entropy_real_com1.csv"))%>% 
+  filter(k == 5)
+real_com2 <- read_csv(here("tables", "entropy_real_com2.csv"))%>% 
+  filter(k == 5)
+real_sim1 <- read_csv(here("tables", "entropy_real_sim1.csv"))%>% 
+  filter(k == 4)
+real_sim2 <- read_csv(here("tables", "entropy_real_sim2.csv"))%>% 
+  filter(k == 4)
+
+entropy_ideal <- rbind(ideal_com1, ideal_sim1) %>% 
+  mutate(de = NA) %>% 
+  rbind(ideal_com2, ideal_sim2) %>% 
+  mutate(entropy = as.numeric(entropy)) 
+
+entropy_real <- rbind(real_com1, real_sim1) %>% 
+  mutate(de = NA) %>% 
+  rbind(real_com2, real_sim2) %>% 
+  mutate(entropy = as.numeric(entropy))
+
+summary(entropy_ideal$entropy)
+summary(entropy_real$entropy)
+```
+
+# ANOVA Analyses
+
+Read in data
+
+```{r}
+ideal_com1 <- read_csv(here("tables", "ideal_com1.csv"))
+ideal_com2 <- read_csv(here("tables", "ideal_com2.csv"))
+ideal_sim1 <- read_csv(here("tables", "ideal_sim1.csv"))
+ideal_sim2 <- read_csv(here("tables", "ideal_sim2.csv"))
+
+real_com1 <- read_csv(here("tables", "real_com1.csv"))
+real_com2 <- read_csv(here("tables", "real_com2.csv"))
+real_sim1 <- read_csv(here("tables", "real_sim1.csv"))
+real_sim2 <- read_csv(here("tables", "real_sim2.csv"))
+
+anova_com <- rbind(ideal_com1, real_com1) %>% 
+  mutate(de = NA) %>% 
+  rbind(ideal_com2, real_com2) %>% 
+  select(Fit_Index:model, de, Class_5, p, m) %>% 
+  mutate(prop_correct = Class_5 / 100,
+         de = factor(de),
+         N = factor(N)) %>% 
+  rename(correct_class = Class_5) 
+
+anova_sim <- rbind(ideal_sim1, real_sim1) %>% 
+  mutate(de = NA) %>% 
+  rbind(ideal_sim2, real_sim2) %>% 
+  select(Fit_Index:model, de, Class_4, p, m) %>% 
+  mutate(prop_correct = Class_4 / 100,
+         de = factor(de),
+         N = factor(N)) %>% 
+  rename(correct_class = Class_4)
+
+total_anova <- rbind(anova_com, anova_sim) %>% 
+  rename(fit_index = Fit_Index) %>% 
+  mutate(p = case_when(
+    p == "p3" ~ "p3a",
+    p == "p4" ~ "p3b",
+    TRUE ~ p
+  ))
+```
+
+ANOVA Results
+
+## Full 
+
+With DE
+
+```{r}
+options(max.print = 2000)
+
+# ANOVA results
+anova_result <- aov(prop_correct ~ de + p + m + N + model + k_split + separation + fit_index,
+                    data = total_anova)
+summary(anova_result)
+tukey <- TukeyHSD(anova_result)
+tukey
+#plot(tukey, las = 1)
+eta_squared(anova_result)
+#plot(anova_result, which = 2)
+
+#apa.aov.table(anova_result,
+#              filename = here("tables", "anova_table.doc"),
+#              table.number = 1)
+```
+
+Without DE
+
+```{r}
+options(max.print = 2000)
+
+# ANOVA results
+anova_result <- aov(prop_correct ~  p + m + N + model + k_split + separation + fit_index,
+                    data = total_anova)
+summary(anova_result)
+TukeyHSD(anova_result)
+eta_squared(anova_result)
+```
+
+## Interactions
+
+```{r}
+options(max.print = 2000)
+
+anova_result <- aov(
+  prop_correct ~ N * fit_index + de * fit_index + p * fit_index + m * fit_index + model *
+    fit_index + k_split * fit_index + separation * fit_index +
+    de + p + m + N + model + k_split + separation + fit_index,
+  data = total_anova
+)
+summary(anova_result)
+#TukeyHSD(anova_result)
+eta_squared(anova_result)
+```
+
+## BIC Only
+
+```{r}
+options(max.print = 2000) 
+
+# ANOVA results
+total_BIC <- total_anova %>% 
+  filter(fit_index == "BIC")
+anova_result <- aov(prop_correct ~ de + p + m + N + model + k_split + separation, data = total_BIC)
+summary(anova_result)
+TukeyHSD(anova_result)
+eta_squared(anova_result)
+```
+
+
+```{r, eval = FALSE, include = FALSE}
+tukey_df <- tidy(tukey, conf.int = TRUE)
+
+tukey_table <- tukey_df %>%
+  mutate(
+    p_value = case_when(
+      adj.p.value < .001 ~ "< .001",
+      TRUE ~ sprintf("%.3f", adj.p.value)
+    ),
+    CI = sprintf("[%.2f, %.2f]", conf.low, conf.high)  # Format CI
+  ) %>% 
+  select(-null.value) %>% 
+  gt() %>%
+  tab_header(title = "Tukey HSD Post Hoc Test Results") %>%
+  fmt_number(
+    columns = c(estimate, conf.low, conf.high, adj.p.value),
+    decimals = 3
+  ) %>%
+  cols_label(
+    term = "Term",
+    contrast = "Comparison",
+    estimate = "Difference",
+    conf.low = "Lower CI",
+    conf.high = "Upper CI",
+    adj.p.value = "p-value"
+  )
+tukey_table
+
+#gtsave(tukey_table, here("tables", "tukey.docx"))
+```
+
+
+# Over/Underextraction
+
+Underextraction was computed as the sum of all solutions selecting fewer classes than the true model minus the percentage selecting the correct number of classes, while overextraction was calculated as the percentage selecting more classes than the true model minus the correct class percentage.
+
+```{r}
+extract_com <- rbind(ideal_com1, real_com1) %>% 
+  mutate(de = NA) %>% 
+  rbind(ideal_com2, real_com2) %>% 
+  mutate(prop_correct = Class_5 / 100,
+         de = factor(de),
+         N = factor(N)) %>%
+  rowwise() %>% 
+  mutate(under_ext = sum(c_across(Class_2:Class_4), na.rm = T)-Class_5,
+         over_ext = Class_6-Class_5) %>% 
+  ungroup() %>% 
+  rename(correct_class = Class_5) %>% 
+  select(Fit_Index, N, k_split, separation, model, p, m, de, under_ext, over_ext, correct_class) 
+
+extract_sim <- rbind(ideal_sim1, real_sim1) %>% 
+  mutate(de = NA) %>% 
+  rbind(ideal_sim2, real_sim2) %>% 
+  mutate(prop_correct = Class_4 / 100,
+         de = factor(de),
+         N = factor(N)) %>% 
+  rowwise() %>% 
+  mutate(under_ext = sum(c_across(Class_2:Class_3), na.rm = T)-Class_4,
+         over_ext = Class_5-Class_4) %>% 
+  ungroup() %>% 
+  rename(correct_class = Class_4) %>% 
+  select(Fit_Index, N, k_split, separation, model, p, m, de, under_ext, over_ext, correct_class) 
+
+full_extract <- extract_com %>% 
+  full_join(extract_sim) %>% 
+  arrange(correct_class) %>% 
+  filter(Fit_Index != "cmPk")
+
+
+under_ext <- full_extract %>%
+  filter(under_ext > 0) %>% 
+  arrange(desc(under_ext))
+
+over_ext <- full_extract %>%
+  filter(over_ext > 0) %>% 
+  arrange(desc(over_ext)) %>% 
+  filter(Fit_Index != "VLMR")
+```
+
+## Underextraction 
+
+### For each condition
+
+```{r}
+# Underextraction for each condition, separately
+under_ext %>%
+  select(Fit_Index) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "level") %>%
+  group_by(variable, level) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  arrange(variable, desc(count)) %>% 
+  arrange(desc(count))
+```
+
+
+### Model Selection Criterion x N
+
+```{r}
+under_ext %>%
+  count(Fit_Index, separation) %>% 
+  arrange(desc(n))
+```
+
+### Model Selection Criterion x Analysis model
+
+```{r}
+under_ext %>%
+  count(Fit_Index, m) %>% 
+  arrange(desc(n))
+```
+
+### Model Selection Criterion x Analysis model x DE
+
+```{r}
+under_ext %>%
+  count(Fit_Index, m, de) %>% 
+  #filter(Fit_Index != "AWE") %>% 
+  arrange(desc(n))
+```
+
+### Model Selection Criterion x Analysis model x N
+
+```{r}
+under_ext %>%
+  count(Fit_Index, m, N) %>% 
+  filter(Fit_Index != "AWE") %>% 
+  arrange(desc(n))
+```
+
+
+## Overextraction 
+
+### For each condition, separately
+
+```{r}
+over_ext %>%
+  select(Fit_Index) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "level") %>%
+  group_by(variable, level) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  arrange(variable, desc(count)) %>% 
+  arrange(desc(count))
+```
+
+
+### Model Selection Criterion x N
+
+```{r}
+over_ext %>%
+  count(Fit_Index, N) %>% 
+  arrange(desc(n))
+```
+
+
+### Model Selection Criterion x Analysis model
+
+```{r}
+over_ext %>%
+  count(Fit_Index, m) %>% 
+  arrange(desc(n))
+```
+
+### Model Selection Criterion x Analysis model x DE
+
+```{r}
+over_ext %>%
+  count(Fit_Index, m, de) %>% 
+  arrange(desc(n))
+```
+
+### Model Selection Criterion x Analysis model x N
+
+```{r}
+over_ext %>%
+  count(Fit_Index, m, N) %>% 
+  arrange(desc(n))
+```
+
+
+## BIC Only
+
+```{r}
+over_ext_bic <- over_ext %>% 
+  filter(Fit_Index == "BIC")
+
+under_ext_bic <- under_ext %>% 
+  filter(Fit_Index == "BIC")
+```
+
+
+#### Underextraction
+
+##### Analysis model x N
+
+```{r}
+under_ext_bic %>%
+  count(m, p, de) %>% 
+  arrange(desc(n))
+```
+
+#### Overextraction
+
+##### Analysis model x N
+
+```{r}
+over_ext_bic %>%
+  count(m, p, de) %>% 
+  arrange(desc(n))
+```
+
+
+# Manuscript Plots
+
+Data 
+
+```{r}
+plot_data <- total_anova %>% 
+  filter(fit_index != "cmPk") %>% 
+  mutate(p = case_when(
+    p == "p3" ~ "p3a",
+    p == "p4" ~ "p3b",
+    TRUE ~ p
+  ))
+
+BIC_only <- plot_data %>% 
+  filter(fit_index == "BIC") %>% 
+  mutate(p = case_when(
+    p == "p3" ~ "p3a",
+    p == "p4" ~ "p3b",
+    TRUE ~ p
+  ))
+```
+
+APA colors
+
+```{r}
+# Define APA-appropriate color palette (muted colors)
+apa_colors_2 <- c("#1b9e77",  # Teal
+  "#d95f02",  # Orange
+  "#7a5195",  # Purple
+  "#ef5675",  # Coral
+  "#66a61e",  # Green
+  "#ffa600",  # Yellow
+  "#2f4b7c",  # Teal
+  "#666666")  # Gray
+
+
+apa_colors <- c(
+  "aBIC" = "#1b9e77",
+  "AWE" = "#d95f02",
+  "BIC" = "#7570b3",
+  "CAIC" = "#e7298a",
+  "VLMR" = "#66a61e",
+  "cmPk" = "#e6ab02"  # Add 6th color if needed
+)
+```
+
+## Interaction Plots
+
+```{r}
+# Interaction Line Plots
+
+interaction.plot(x.factor = plot_data$N, trace.factor = plot_data$de, 
+                 response = plot_data$prop_correct, col = rainbow(3),
+                 lty = 1, xlab = "Sample Size", ylab = "Proportion Correctly Identified")
+
+interaction.plot(x.factor = plot_data$N, trace.factor = plot_data$k_split, 
+                 response = plot_data$prop_correct, col = rainbow(2),
+                 lty = 1, xlab = "Sample Size", ylab = "Proportion Correctly Identified")
+
+interaction.plot(x.factor = plot_data$N, trace.factor = plot_data$sim_model, 
+                 response = plot_data$prop_correct, col = rainbow(9),
+                 lty = 1, xlab = "Sample Size", ylab = "Proportion Correctly Identified")
+
+interaction.plot(x.factor = plot_data$N, trace.factor = plot_data$model, 
+                 response = plot_data$prop_correct, col = rainbow(2),
+                 lty = 1, xlab = "Sample Size", ylab = "Proportion Correctly Identified")
+
+interaction.plot(x.factor = plot_data$N, trace.factor = plot_data$p, 
+                 response = plot_data$prop_correct, col = rainbow(4),
+                 lty = 1, xlab = "Sample Size", ylab = "Proportion Correctly Identified")
+
+interaction.plot(x.factor = plot_data$N, trace.factor = plot_data$m, 
+                 response = plot_data$prop_correct, col = rainbow(3),
+                 lty = 1, xlab = "Sample Size", ylab = "Proportion Correctly Identified")
+
+interaction.plot(x.factor = plot_data$N, trace.factor = plot_data$fit_index, 
+                 response = plot_data$prop_correct, col = rainbow(3),
+                 lty = 1, xlab = "Sample Size", ylab = "Proportion Correctly Identified")
+```
+
+## Single *Condition* Barplots
+
+```{r}
+# Model Selection Criterion
+fit_bar <- plot_data %>% 
+  ggplot(aes(x = fct_reorder(fit_index, prop_correct, .fun = mean, .desc = TRUE), y = prop_correct, fill = as.factor(fit_index))) +
+  stat_summary(fun = mean, geom = "bar", 
+               position = position_dodge(0.9), 
+               color = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", 
+               position = position_dodge(0.9), 
+               width = 0.2, color = "black") +
+  stat_summary(
+    fun = mean,
+    geom = "text",
+    aes(label = format(..y.., digits = 2, nsmall = 2)),
+    position = position_dodge(0.9),
+    vjust = 4,
+    size = 5,
+    family = "serif",
+    color = "black"
+  ) +
+  labs(title = "Average Recovery Rate by Model Selection Criterion",
+       x = "Model Selection Criterion",
+       y = "Average Recovery Rate") +
+  scale_fill_manual(values = setNames(apa_colors, levels(as.factor(plot_data$fit_index)))) + # Fix color mapping
+  ylim(0, 1) +
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.position = "none"  # Remove legend
+  )
+fit_bar
+ggsave(here("figures", "fit_bar.jpeg"), dpi="retina", height = 3, width = 5, bg = "white",  units="in")
+
+
+# Sample Size
+N_bar <- BIC_only %>% 
+  ggplot(aes(x = N, 
+             y = prop_correct,
+             fill = after_stat(y))) +  # Fill based on bar height
+  stat_summary(fun = mean, geom = "bar", 
+               position = position_dodge(0.9), 
+               color = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", 
+               position = position_dodge(0.9), 
+               width = 0.2, color = "black") +
+  stat_summary(
+    fun = mean,
+    geom = "text",
+    aes(label = format(..y.., digits = 2, nsmall = 2)),
+    position = position_dodge(0.9),
+    vjust = 3,
+    size = 5,
+    family = "serif",
+    color = "black"
+  ) +
+  labs(title = "Average Recovery Rate by Sample Size",
+       x = "Sample Size",
+       y = "Average Recovery Rate") +
+ #scale_fill_manual(values = rep("#d95f02", length(unique(plot_data$fit_index))))+
+  scale_fill_gradient(
+    low = "white", 
+    high = apa_colors_2[1],       # APA-style green
+    limits = c(0, 1),       # Ensure 0 maps to white
+    oob = scales::squish     # Keeps out-of-bound values in range
+  ) +
+  ylim(0, 1) +
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.position = "none"  # Remove legend
+  )
+N_bar
+ggsave(here("figures", "N_bar.jpeg"), height = 3, width = 5, dpi="retina", bg = "white",  units="in")
+
+
+# Population 
+p_bar <- BIC_only %>% 
+  mutate(p = toTitleCase(p)) %>% 
+  ggplot(aes(x = p, 
+             y = prop_correct,
+             fill = after_stat(y))) +  # Fill based on bar height
+  stat_summary(fun = mean, geom = "bar", 
+               position = position_dodge(0.9), 
+               color = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", 
+               position = position_dodge(0.9), 
+               width = 0.2, color = "black") +
+  stat_summary(
+    fun = mean,
+    geom = "text",
+    aes(label = format(..y.., digits = 2, nsmall = 2)),
+    position = position_dodge(0.9),
+    vjust = 4,
+    size = 5,
+    family = "serif",
+    color = "black"
+  ) +
+  labs(title = "Average Recovery Rate by Population Model",
+       x = "Population Model",
+       y = "Average Recovery Rate") +
+  scale_fill_gradient(
+    low = "white", 
+    high = apa_colors_2[2],       # APA-style green
+    limits = c(0, 1),       # Ensure 0 maps to white
+    oob = scales::squish     # Keeps out-of-bound values in range
+  ) +
+  ylim(0, 1) +
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.position = "none"  # Remove legend
+  )
+p_bar
+ggsave(here("figures", "p_bar.jpeg"), height = 3, width = 5, dpi="retina", bg = "white",  units="in")
+
+
+
+# Analysis Model 
+m_bar <- BIC_only %>% 
+  mutate(m = toTitleCase(m)) %>% 
+  ggplot(aes(x = m, 
+             y = prop_correct,
+             fill = after_stat(y))) +  # Fill based on bar height
+  stat_summary(fun = mean, geom = "bar", 
+               position = position_dodge(0.9), 
+               color = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", 
+               position = position_dodge(0.9), 
+               width = 0.2, color = "black") +
+  stat_summary(
+    fun = mean,
+    geom = "text",
+    aes(label = format(..y.., digits = 2, nsmall = 2)),
+    position = position_dodge(0.9),
+    vjust = 4,
+    size = 5,
+    family = "serif",
+    color = "black"
+  ) +
+  labs(title = "Average Recovery Rate by Analysis Model",
+       x = "Analysis Model",
+       y = "Average Recovery Rate") +
+  scale_fill_gradient(
+    low = "white", 
+    high = apa_colors_2[3],       # APA-style green
+    limits = c(0, 1),       # Ensure 0 maps to white
+    oob = scales::squish     # Keeps out-of-bound values in range
+  ) +
+  ylim(0, 1) +
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.position = "none"  # Remove legend
+  )
+m_bar
+ggsave(here("figures", "m_bar.jpeg"), height = 3, width = 5, dpi="retina", bg = "white",  units="in")
+
+
+
+# DE  Model 
+de_bar <- BIC_only %>% 
+  filter(de != "NA") %>% 
+ # mutate(de = fct_explicit_na(de, na_level = "NA"),  
+#         de = fct_relevel(de, "NA", "0.405", "0.9", "1.5"))  %>% 
+  ggplot(aes(x = fct_reorder(de, prop_correct, .fun = mean, .desc = TRUE), 
+             y = prop_correct,
+             fill = after_stat(y))) +  # Fill based on bar height
+  stat_summary(fun = mean, geom = "bar", 
+               position = position_dodge(0.9), 
+               color = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", 
+               position = position_dodge(0.9), 
+               width = 0.2, color = "black") +
+  stat_summary(
+    fun = mean,
+    geom = "text",
+    aes(label = format(..y.., digits = 2, nsmall = 2)),
+    position = position_dodge(0.9),
+    vjust = 4,
+    size = 5,
+    family = "serif",
+    color = "black"
+  ) +
+  labs(title = "Average Recovery Rate by Direct Effect",
+       x = "Direct Effect",
+       y = "Average Recovery Rate") +
+  scale_fill_gradient(
+    low = "white", 
+    high = apa_colors_2[4],       # APA-style green
+    limits = c(0, 1),       # Ensure 0 maps to white
+    oob = scales::squish     # Keeps out-of-bound values in range
+  ) +
+  ylim(0, 1) +
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.position = "none"  # Remove legend
+  )
+de_bar
+ggsave(here("figures", "de_bar.jpeg"), height = 3, width = 5, dpi="retina", bg = "white",  units="in")
+
+
+
+# K split  Model 
+k_bar <- BIC_only %>% 
+  mutate(k_split = toTitleCase(k_split)) %>% 
+  ggplot(aes(x = fct_reorder(k_split, prop_correct, .fun = mean, .desc = TRUE), 
+             y = prop_correct,
+             fill = after_stat(y))) +  # Fill based on bar height
+  stat_summary(fun = mean, geom = "bar", 
+               position = position_dodge(0.9), 
+               color = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", 
+               position = position_dodge(0.9), 
+               width = 0.2, color = "black") +
+  stat_summary(
+    fun = mean,
+    geom = "text",
+    aes(label = format(..y.., digits = 2, nsmall = 2)),
+    position = position_dodge(0.9),
+    vjust = 4,
+    size = 5,
+    family = "serif",
+    color = "black"
+  ) +
+  labs(title = "Average Recovery Rate by Class Proportion",
+       x = "Class Proportion",
+       y = "Average Recovery Rate") +
+  scale_fill_gradient(
+    low = "white", 
+    high = apa_colors_2[5],       # APA-style green
+    limits = c(0, 1),       # Ensure 0 maps to white
+    oob = scales::squish     # Keeps out-of-bound values in range
+  ) +
+  ylim(0, 1) +
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.position = "none"  # Remove legend
+  )
+k_bar
+ggsave(here("figures", "k_bar.jpeg"), dpi="retina", height = 3, width = 5, bg = "white",  units="in")
+
+
+
+# Separation
+sep_bar <- BIC_only %>% 
+  mutate(separation = toTitleCase(separation)) %>% 
+  ggplot(aes(x = fct_reorder(separation, prop_correct, .fun = mean, .desc = TRUE), 
+             y = prop_correct,
+             fill = after_stat(y))) +  # Fill based on bar height
+  stat_summary(fun = mean, geom = "bar", 
+               position = position_dodge(0.9), 
+               color = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", 
+               position = position_dodge(0.9), 
+               width = 0.2, color = "black") +
+  stat_summary(
+    fun = mean,
+    geom = "text",
+    aes(label = format(..y.., digits = 2, nsmall = 2)),
+    position = position_dodge(0.9),
+    vjust = 4,
+    size = 5,
+    family = "serif",
+    color = "black"
+  ) +
+  labs(title = "Average Recovery Rate by Separation",
+       x = "Separation",
+       y = "Average Recovery Rate") +
+  scale_fill_gradient(
+    low = "white", 
+    high = apa_colors_2[6],       # APA-style green
+    limits = c(0, 1),       # Ensure 0 maps to white
+    oob = scales::squish     # Keeps out-of-bound values in range
+  ) +
+  ylim(0, 1) +
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.position = "none"  # Remove legend
+  )
+sep_bar
+ggsave(here("figures", "sep_bar.jpeg"), dpi="retina", height = 3, width = 5, bg = "white",  units="in")
+
+
+
+# Measurement model
+model_bar <- BIC_only %>% 
+  mutate(model = toTitleCase(model)) %>% 
+  ggplot(aes(x = fct_reorder(model, prop_correct, .fun = mean, .desc = TRUE), 
+             y = prop_correct,
+             fill = after_stat(y))) +  # Fill based on bar height
+  stat_summary(fun = mean, geom = "bar", 
+               position = position_dodge(0.9), 
+               color = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", 
+               position = position_dodge(0.9), 
+               width = 0.2, color = "black") +
+  stat_summary(
+    fun = mean,
+    geom = "text",
+    aes(label = format(..y.., digits = 2, nsmall = 2)),
+    position = position_dodge(0.9),
+    vjust = 4,
+    size = 5,
+    family = "serif",
+    color = "black"
+  ) +
+  labs(title = "Average Recovery Rate by Measurement Model",
+       x = "Measurement Model",
+       y = "Average Recovery Rate") +
+  scale_fill_gradient(
+    low = "white", 
+    high = apa_colors_2[7],       # APA-style green
+    limits = c(0, 1),       # Ensure 0 maps to white
+    oob = scales::squish     # Keeps out-of-bound values in range
+  ) +
+  ylim(0, 1) +
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.position = "none"  # Remove legend
+  )
+model_bar
+ggsave(here("figures", "model_bar.jpeg"), dpi="retina", height = 3, width = 5, bg = "white",  units="in")
+```
+
+Combine:
+
+```{r}
+no_y_axis <- theme(
+    axis.title.y = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+
+combined_plot <- (
+  p_bar + labs(title = NULL) |
+    m_bar  + labs(title = NULL) + no_y_axis |
+    N_bar + labs(title = NULL) + no_y_axis
+) /
+  (
+    sep_bar + labs(title = NULL) |
+      de_bar + labs(title = NULL) + no_y_axis |
+      k_bar + labs(title = NULL) + no_y_axis |
+      model_bar + labs(title = NULL) + no_y_axis
+  ) +
+  plot_layout(guides = "collect") +
+  plot_annotation(title = "Average Recovery Rates Across Study Conditions for BIC Only", tag_levels = "A") +
+  theme(
+    text = element_text(
+      family = "serif",
+      size = 16,
+      color = "black"
+    ),
+    plot.title = element_text(
+      size = 14,
+      color = "black",
+      face = "bold",
+      hjust = 0.5
+    ),
+    axis.title = element_text(size = 12, face = "bold"),
+    axis.text = element_text(size = 12, color = "black"),
+    strip.text = element_text(size = 12, face = "bold"),
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text = element_text(size = 11),
+    legend.position = "none"
+  )
+combined_plot
+ggsave(here("figures", "N_fit_bar_combined.jpeg"), height = 7, width = 12, dpi="retina", bg = "white",  units="in")
+```
+
+
+## N x *Condition* Barplots
+
+```{r}
+
+# Model Selection Criterion
+plot_data %>% 
+  ggplot(aes(x = N, y = prop_correct, fill = as.factor(fit_index))) +
+  stat_summary(fun = mean, geom = "bar", 
+               position = position_dodge(0.9), 
+               color = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", 
+               position = position_dodge(0.9), 
+               width = 0.2, color = "black") +
+  labs(title = "Average Recovery Rate by Model Selection Criterion and Sample Size",
+       x = "N",
+       y = "Average Recovery Rate",
+       fill = "Model Selection Criterion") +
+  scale_fill_manual(values = setNames(apa_colors, levels(as.factor(plot_data$fit_index)-1))) +
+  ylim(0,1) +
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+
+ggsave(here("figures", "fit_N_bar.jpeg"), dpi="retina", bg = "white",  units="in")
+
+# Population Models
+plot_data %>% 
+  mutate(p = toTitleCase(p)) %>% 
+  ggplot(aes(x = N, y = prop_correct, fill = as.factor(p))) +
+  stat_summary(fun = mean, geom = "bar", 
+               position = position_dodge(0.9), 
+               color = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", 
+               position = position_dodge(0.9), 
+               width = 0.2, color = "black") +
+  labs(title = "Average Recovery Rate by Population Model and Sample Size",
+       x = "N",
+       y = "Average Recovery Rate",
+       fill = "Population Model") +
+  scale_fill_manual(values = setNames(apa_colors, levels(as.factor(toTitleCase(plot_data$p))))) +
+  ylim(0,1) +
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+
+ggsave(here("figures", "p_N_bar.jpeg"), dpi="retina", bg = "white", units="in")
+
+# Analysis Model
+analysis_model_colors <- c(
+  "M1" = "#d4b9da",  # light lavender
+  "M2" = "#b39fc8",  # medium purple
+  "M3" = "#7a5195"   # deep APA purple
+)
+BIC_only %>% 
+  mutate(m = toTitleCase(m)) %>% 
+  ggplot(aes(x = N, y = prop_correct, fill = as.factor(m))) +
+  stat_summary(fun = mean, geom = "bar", 
+               position = position_dodge(0.9), 
+               color = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", 
+               position = position_dodge(0.9), 
+               width = 0.2, color = "black") +
+  stat_summary(fun = mean,
+             geom = "text",
+             aes(label = format(..y.., digits = 2, nsmall = 2)),
+             position = position_dodge(0.9),
+             vjust = 3,
+             size = 4,
+             family = "serif",
+             color = "black") +
+  labs(title = "Average Recovery Rate by Analysis Model and Sample Size",
+       x = "N",
+       y = "Average Recovery Rate",
+       fill = "Analysis Model") +
+  scale_fill_manual(values = setNames(analysis_model_colors, levels(as.factor(toTitleCase(BIC_only$m))))) +
+  ylim(0,1) +
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+
+ggsave(here("figures", "m_N_bar1.jpeg"), height =4, width = 6, dpi="retina", bg = "white", units="in")
+
+# Analsis Model 2
+BIC_only %>% 
+  mutate(m = toTitleCase(m)) %>% 
+  ggplot(aes(x = m, y = prop_correct, fill = as.factor(N))) +
+  stat_summary(fun = mean, geom = "bar", 
+               position = position_dodge(0.9), 
+               color = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", 
+               position = position_dodge(0.9), 
+               width = 0.2, color = "black") +
+  labs(title = "Average Recovery Rate by Sample Size and Analysis Model",
+       x = "Analysis Model",
+       y = "Average Recovery Rate",
+       fill = "Sample Size") +
+  scale_fill_manual(values = setNames(apa_colors, levels(as.factor(BIC_only$N)))) +
+  ylim(0,1) +
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+
+ggsave(here("figures", "m_N_bar2.jpeg"), height =4, width = 5, dpi="retina", bg = "white", units="in")
+
+de_colors <- c(
+  #"NA" = "white",
+  "0.405" = "#fddde0",  # light coral pink
+  "0.9"   = "#f98b9b",  # medium coral
+  "1.5"   = "#ef5675"   # deep coral pink (your original)
+)
+# DE
+BIC_only %>% 
+  filter(!is.na(de)) %>%  # Corrected filtering of NA values
+  ggplot(aes(x = N, y = prop_correct, fill = as.factor(de))) +
+  stat_summary(fun = mean, geom = "bar", 
+               position = position_dodge(0.9), 
+               color = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", 
+               position = position_dodge(0.9), 
+               width = 0.2, color = "black") +
+  stat_summary(fun = mean,
+             geom = "text",
+             aes(label = format(..y.., digits = 2, nsmall = 2)),
+             position = position_dodge(0.9),
+             vjust = 3,
+             size = 4,
+             family = "serif",
+             color = "black") +
+  labs(title = "Average Recovery Rate by DE and Sample Size",
+       x = "N",
+       y = "Average Recovery Rate",
+       fill = "Direct Effects") +
+  scale_fill_manual(values = setNames(de_colors, levels(as.factor(BIC_only$de)))) +
+  ylim(0,1) +
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+ggsave(here("figures", "de_N_bar.jpeg"), height =4, width =6,  dpi="retina", bg = "white", units="in")
+
+# Class Proportion
+plot_data %>% 
+  mutate(k_split = toTitleCase(k_split)) %>% 
+  ggplot(aes(x = N, y = prop_correct, fill = as.factor(k_split))) +
+  stat_summary(fun = mean, geom = "bar", 
+               position = position_dodge(0.9), 
+               color = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", 
+               position = position_dodge(0.9), 
+               width = 0.2, color = "black") +
+  labs(title = "Average Recovery Rate by Class Proportion and Sample Size",
+       x = "N",
+       y = "Average Recovery Rate",
+       fill = "Class Proportion") +
+  scale_fill_manual(values = setNames(apa_colors, levels(as.factor(toTitleCase(plot_data$k_split))))) +
+  ylim(0,1) +
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+
+ggsave(here("figures", "k_N_bar.jpeg"), dpi="retina", bg = "white", units="in")
+
+separation_colors <- c(
+  "Low"  = "#ffdf99",  # Light golden yellow (soft, pastel-like)
+  "High" = "#ffa600"   # Vibrant golden orange (your original)
+)
+# Separation
+BIC_only %>% 
+  mutate(separation = toTitleCase(separation)) %>% 
+  ggplot(aes(x = N, y = prop_correct, fill = as.factor(separation))) +
+  stat_summary(fun = mean, geom = "bar", 
+               position = position_dodge(0.9), 
+               color = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", 
+               position = position_dodge(0.9), 
+               width = 0.2, color = "black") +
+  stat_summary(fun = mean,
+             geom = "text",
+             aes(label = format(..y.., digits = 2, nsmall = 2)),
+             position = position_dodge(0.9),
+             vjust = 3,
+             size = 5,
+             family = "serif",
+             color = "black") +
+  labs(title = "Average Recovery Rate by Separation and Sample Size",
+       x = "N",
+       y = "Average Recovery Rate",
+       fill = "Separation") +
+  scale_fill_manual(values = setNames(separation_colors, levels(as.factor(toTitleCase(BIC_only$separation))))) +
+  ylim(0,1) +
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+
+ggsave(here("figures", "sep_N_bar.jpeg"), dpi="retina", height =4, width = 6,  bg = "white", units="in")
+
+
+# Measurement Model
+plot_data %>% 
+  mutate(model = toTitleCase(model)) %>% 
+  ggplot(aes(x = N, y = prop_correct, fill = as.factor(model))) +
+  stat_summary(fun = mean, geom = "bar", 
+               position = position_dodge(0.9), 
+               color = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", 
+               position = position_dodge(0.9), 
+               width = 0.2, color = "black") +
+  labs(title = "Average Recovery Rate by Measurement Model and Sample Size",
+       x = "N",
+       y = "Average Recovery Rate",
+       fill = "Measurement Model") +
+  scale_fill_manual(values = setNames(apa_colors, levels(as.factor(toTitleCase(plot_data$model))))) +
+  ylim(0,1) +
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+
+ggsave(here("figures", "model_N_bar.jpeg"), dpi="retina", bg = "white", units="in")
+```
+
+## Fit x *Condition* Lineplot
+
+```{r, fig.height=5, fig.width=7}
+fit_plot_data <- plot_data %>%
+  mutate(fit_index = fct_relevel(fit_index, "BIC", "CAIC", "aBIC", "VLMR", "AWE"))
+# Sample Size
+fit_n_line <- fit_plot_data %>% 
+  group_by(N, fit_index) %>% 
+  summarise(
+    mean_prop_correct = mean(prop_correct, na.rm = TRUE),
+    se = sd(prop_correct, na.rm = TRUE) / sqrt(n())  # Standard error
+  ) %>%
+  ungroup() %>% 
+ggplot(aes(x = N, y = mean_prop_correct, group = fit_index, color = fit_index)) +
+  geom_line(linewidth = 1) + 
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = mean_prop_correct - se, ymax = mean_prop_correct + se), 
+                width = 0.1, size = 0.7) +  # APA-style error bars
+  scale_color_manual(values = apa_colors) +  # Use defined APA color palette
+  labs(
+    x = "Sample Size", 
+    y = "Average Recovery Rate",
+    color = "Model Selection Criterion",
+    title = "Average Recovery Rates by Sample Size and Model Selection Criterion"
+  ) +
+  ylim(0,1)+
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+fit_n_line
+ggsave(here("figures", "n_fit_int.jpeg"), dpi="retina", bg = "white", height=4, width=5, units="in")
+
+# Population Model
+fit_p_line <- fit_plot_data %>% 
+  mutate(p = toTitleCase(p)) %>% 
+  group_by(p, fit_index) %>% 
+  summarise(
+    mean_prop_correct = mean(prop_correct, na.rm = TRUE),
+    se = sd(prop_correct, na.rm = TRUE) / sqrt(n())  # Standard error
+  ) %>%
+  ungroup() %>% 
+ggplot(aes(x = p, y = mean_prop_correct, group = fit_index, color = fit_index)) +
+  geom_line(size = 1) + 
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = mean_prop_correct - se, ymax = mean_prop_correct + se), 
+                width = 0.1, size = 0.7) +  # APA-style error bars
+  scale_color_manual(values = apa_colors) +  # Use defined APA color palette
+  labs(
+    x = "Population Model", 
+    y = "Average Recovery Rate",
+    color = "Model Selection Criterion",
+    title = "Average Recovery Rates by Population Model and Model Selection Criterion"
+  ) +
+  ylim(0,1)+
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+fit_p_line
+ggsave(here("figures", "p_fit_int.jpeg"), dpi="retina", bg = "white", height=4, width=5, units="in")
+
+# Analysis Model 
+fit_m_line <- fit_plot_data %>% 
+  mutate(m = toTitleCase(m)) %>% 
+  group_by(m, fit_index) %>% 
+  summarise(
+    mean_prop_correct = mean(prop_correct, na.rm = TRUE),
+    se = sd(prop_correct, na.rm = TRUE) / sqrt(n())  # Standard error
+  ) %>%
+  ungroup() %>% 
+ggplot(aes(x = m, y = mean_prop_correct, group = fit_index, color = fit_index)) +
+  geom_line(size = 1) + 
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = mean_prop_correct - se, ymax = mean_prop_correct + se), 
+                width = 0.1, size = 0.7) +  # APA-style error bars
+  scale_color_manual(values = apa_colors) +  # Use defined APA color palette
+  labs(
+    x = "Analysis Model", 
+    y = "Average Recovery Rate",
+    color = "Model Selection Criterion",
+    title = "Average Recovery Rate by Analysis Model and Model Selection Criterion"
+  ) +
+  ylim(0,1)+
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+fit_m_line
+ggsave(here("figures", "m_fit_int.jpeg"), dpi="retina", bg = "white", height=4, width=5, units="in")
+
+# Direct Effect
+fit_de_line<- fit_plot_data %>%
+  filter(!is.na(de)) %>%  # Corrected filtering of NA values
+  mutate(de = fct_explicit_na(de, na_level = "NA"),  
+         de = fct_relevel(de, "0.405", "0.9", "1.5"))  %>% 
+  rename(`Split` = k_split,
+         `DE` = de) %>% 
+  group_by(`DE`, fit_index) %>% 
+  summarise(
+    mean_prop_correct = mean(prop_correct, na.rm = TRUE),
+    se = sd(prop_correct, na.rm = TRUE) / sqrt(n())  # Standard error
+  ) %>%
+  ungroup() %>% 
+ggplot(aes(x = `DE`, y = mean_prop_correct, group = fit_index, color = fit_index)) +
+  geom_line(size = 1) + 
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = mean_prop_correct - se, ymax = mean_prop_correct + se), 
+                width = 0.1, size = 0.7) +  # APA-style error bars
+  scale_color_manual(values = apa_colors) +  # Use defined APA color palette
+  labs(
+    x = "Direct Effect", 
+    y = "Average Recovery Rate",
+    color = "Model Selection Criterion",
+    title = "Average Recovery Rates by Direct Effect and Model Selection Criterion"
+  ) +
+  ylim(0,1)+
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+fit_de_line
+ggsave(here("figures", "de_fit_int.jpeg"), dpi="retina", bg = "white", height=5, width=7, units="in")
+
+# Class Proportion
+fit_k_line <- fit_plot_data %>% 
+  rename(`Split` = k_split,
+         `DE` = de) %>% 
+  mutate(`Split` = toTitleCase(`Split`)) %>% 
+  group_by(`Split`, fit_index) %>% 
+  summarise(
+    mean_prop_correct = mean(prop_correct, na.rm = TRUE),
+    se = sd(prop_correct, na.rm = TRUE) / sqrt(n())  # Standard error
+  ) %>%
+  ungroup() %>% 
+ggplot(aes(x = `Split`, y = mean_prop_correct, group = fit_index, color = fit_index)) +
+  geom_line(size = 1) + 
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = mean_prop_correct - se, ymax = mean_prop_correct + se), 
+                width = 0.1, size = 0.7) +  # APA-style error bars
+  scale_color_manual(values = apa_colors) +  # Use defined APA color palette
+  labs(
+    x = "Class Proportion", 
+    y = "Average Recovery Rate",
+    color = "Model Selection Criterion",
+    title = "Average Recovery Rates by Class Proportion and Model Selection Criterion"
+  ) +
+  ylim(0,1)+
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+fit_k_line
+ggsave(here("figures", "k_fit_int.jpeg"), dpi="retina", bg = "white", height=4, width=5, units="in")
+
+# Separation
+fit_sep_line <- fit_plot_data %>% 
+  rename(`Separation` = separation,
+         `DE` = de) %>% 
+  mutate(`Separation` = toTitleCase(`Separation`)) %>% 
+  group_by(`Separation`, fit_index) %>% 
+  summarise(
+    mean_prop_correct = mean(prop_correct, na.rm = TRUE),
+    se = sd(prop_correct, na.rm = TRUE) / sqrt(n())  # Standard error
+  ) %>%
+  ungroup() %>% 
+ggplot(aes(x = `Separation`, y = mean_prop_correct, group = fit_index, color = fit_index)) +
+  geom_line(size = 1) + 
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = mean_prop_correct - se, ymax = mean_prop_correct + se), 
+                width = 0.1, size = 0.7) +  # APA-style error bars
+  scale_color_manual(values = apa_colors) +  # Use defined APA color palette
+  labs(
+    x = "Separation", 
+    y = "Average Recovery Rate",
+    color = "Model Selection Criterion",
+    title = "Average Recovery Rates by Separation and Model Selection Criterion"
+  ) +
+  ylim(0,1)+
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+fit_sep_line
+ggsave(here("figures", "sep_fit_int.jpeg"), dpi="retina", bg = "white", height=4, width=5, units="in")
+
+
+# Measurement
+fit_model_line <- fit_plot_data %>% 
+  rename(`Measurement Model` = model,
+         `DE` = de) %>% 
+  mutate(`Measurement Model` = toTitleCase(`Measurement Model`)) %>% 
+  group_by(`Measurement Model`, fit_index) %>% 
+  summarise(
+    mean_prop_correct = mean(prop_correct, na.rm = TRUE),
+    se = sd(prop_correct, na.rm = TRUE) / sqrt(n())  # Standard error
+  ) %>%
+  ungroup() %>% 
+ggplot(aes(x = `Measurement Model`, y = mean_prop_correct, group = fit_index, color = fit_index)) +
+  geom_line(size = 1) + 
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = mean_prop_correct - se, ymax = mean_prop_correct + se), 
+                width = 0.1, size = 0.7) +  # APA-style error bars
+  scale_color_manual(values = apa_colors) +  # Use defined APA color palette
+  labs(
+    x = "Measurement Model", 
+    y = "Average Recovery Rate",
+    color = "Model Selection Criterion",
+    title = "Average Recovery Rates by Measurement Model and Model Selection Criterion"
+  ) +
+  ylim(0,1)+
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+fit_model_line
+ggsave(here("figures", "model_fit_int.jpeg"), dpi="retina", bg = "white", height=4, width=5, units="in")
+```
+
+
+Combine:
+
+```{r}
+no_y_axis <- theme(
+    axis.title.y = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+
+combined_plot <- (
+  fit_p_line + labs(title = NULL) |
+    fit_m_line  + labs(title = NULL) + no_y_axis |
+    fit_n_line + labs(title = NULL) + no_y_axis
+) /
+  (
+    fit_sep_line + labs(title = NULL) |
+      fit_de_line + labs(title = NULL) + no_y_axis |
+      fit_k_line + labs(title = NULL) + no_y_axis |
+      fit_model_line + labs(title = NULL) + no_y_axis
+  ) +
+  plot_layout(guides = "collect") +
+  plot_annotation(title = "Average Recovery Rates Across Model Selection Criterion and Study Conditions", tag_levels = "A") +
+  theme(
+    text = element_text(
+      family = "serif",
+      size = 16,
+      color = "black"
+    ),
+    # APA requires serif font
+    plot.title = element_text(
+      size = 14,
+      color = "black",
+      face = "bold",
+      hjust = 0.5
+    ),
+    # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),
+    axis.text = element_text(size = 12, color = "black"),
+    strip.text = element_text(size = 12, face = "bold"),
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text = element_text(size = 11),
+    legend.position = "bottom",
+    legend.direction = "horizontal"
+  )
+combined_plot
+ggsave(here("figures", "fit_lineplots_combined.jpeg"), height = 7, width = 12, dpi="retina", bg = "white",  units="in")
+
+```
+
+
+## Fit x N x *Condition* Lineplot
+
+```{r, fig.width = 12, fig.height= 9}
+
+# All Sim Models
+plot_data %>% 
+  mutate(sim_model = toupper(sim_model)) %>% 
+  group_by(N, fit_index, sim_model) %>%
+  summarise(
+    mean_prop_correct = mean(prop_correct, na.rm = TRUE),
+    se = sd(prop_correct, na.rm = TRUE) / sqrt(n())  # Standard error
+  ) %>%
+  ungroup() %>% 
+  ggplot(aes(x = N, y = mean_prop_correct, color = as.factor(fit_index), group = as.factor(fit_index))) +
+  geom_line(size = 1) +  # Solid line for APA consistency
+  geom_point(size = 3) +  # Increase point size for readability
+  geom_errorbar(aes(ymin = mean_prop_correct - se, ymax = mean_prop_correct + se), 
+                width = 0.1, size = 0.7) +  # APA-style error bars
+  facet_wrap(~sim_model, labeller = label_value) +  # Better facet labels
+  scale_color_manual(values = apa_colors) +  # Use defined APA color palette
+  labs(
+    x = "Sample Size (N)",
+    y = "Average Recovery Rates",
+    color = "Model Selection Criterion",
+    title = "Average Recovery Rates by Sample Size and Simulation Models"
+  ) +
+  ylim(0,1)+
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+ggsave(here("figures", "p1234_m123_N_fit.jpeg"), dpi="retina", bg = "white", height=7, width=9, units="in")
+
+# P34 x M123
+fit_plot_data %>% 
+  filter(sim_model != "p1m1",
+         sim_model != "p2m1",
+         sim_model != "p2m2") %>%  
+  mutate(m = toTitleCase(m),
+         p = toTitleCase(p)) %>% 
+  rename(`Split` = k_split,
+         `DE` = de) %>% 
+  group_by(m, fit_index, N) %>% 
+  summarise(
+    mean_prop_correct = mean(prop_correct, na.rm = TRUE),
+    se = sd(prop_correct, na.rm = TRUE) / sqrt(n())  # Standard error
+  ) %>%
+  ggplot(aes(x = N, y = mean_prop_correct, color = as.factor(fit_index), group = as.factor(fit_index))) +
+  geom_line(size = 1) +  # Solid line for APA consistency
+  geom_point(size = 3) +  # Increase point size for readability
+  geom_errorbar(aes(ymin = mean_prop_correct - se, ymax = mean_prop_correct + se), 
+                width = 0.1, size = 0.7) +  # APA-style error bars
+  facet_grid(~ m, labeller = label_value) +
+  scale_color_manual(values = apa_colors) +  # Use defined APA color palette
+  labs(
+    x = "Sample Size (N)",
+    y = "Average Recovery Rate",
+    color = "Model Selection Criterion",
+    title = "Average Recovery Rates by Sample Size, Analysis Model, and Model Selection Criterion"
+  ) +
+  ylim(0,1)+
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+
+ggsave(here("figures", "m123_N_fit.jpeg"), dpi="retina", bg = "white", height=4, width=8, units="in")
+
+# DE
+plot_data %>% 
+  group_by(N, fit_index, de) %>%
+  summarise(
+    mean_prop_correct = mean(prop_correct, na.rm = TRUE),
+    se = sd(prop_correct, na.rm = TRUE) / sqrt(n())  # Standard error
+  ) %>%
+  ungroup() %>% 
+  #mutate(de = fct_explicit_na(de, na_level = "NA"),  
+  #       de = fct_relevel(de, "NA", "0.405", "0.9", "1.5"))  %>% 
+  ggplot(aes(x = N, y = mean_prop_correct, color = as.factor(fit_index), group = as.factor(fit_index))) +
+  geom_line(size = 1) +  # Solid line for APA consistency
+  geom_point(size = 3) +  # Increase point size for readability
+  geom_errorbar(aes(ymin = mean_prop_correct - se, ymax = mean_prop_correct + se), 
+                width = 0.1, size = 0.7) +  # APA-style error bars
+  facet_wrap(~de, labeller = labeller(de = function(x) paste("Direct Effects:", x))) +  # Better facet labels
+  scale_color_manual(values = apa_colors) +  # Use defined APA color palette
+  labs(
+    x = "Sample Size (N)",
+    y = "Average Recovery Rates",
+    color = "Model Selection Criterion",
+    title = "Average Recovery Rates by Sample Size and Direct Effects"
+  ) +
+  ylim(0,1)+
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+
+ggsave(here("figures", "de_N_fit.jpeg"), dpi="retina", bg = "white", height=5, width=9, units="in")
+
+
+# DE X M X Fit
+fit_plot_data %>% 
+  mutate(m = toupper(m),
+         p = toupper(p)) %>% 
+  group_by(m, fit_index, de) %>%
+  filter(sim_model != "p1m1",
+         sim_model != "p2m1",
+         sim_model != "p2m2") %>%  
+  summarise(
+    mean_prop_correct = mean(prop_correct, na.rm = TRUE),
+    se = sd(prop_correct, na.rm = TRUE) / sqrt(n())  # Standard error
+  ) %>%
+  ungroup() %>% 
+  #mutate(de = fct_explicit_na(de, na_level = "NA"),  
+  #       de = fct_relevel(de, "NA", "0.405", "0.9", "1.5"))  %>% 
+  ggplot(aes(x = de, y = mean_prop_correct, color = as.factor(fit_index), group = as.factor(fit_index))) +
+  geom_line(size = 1) +  # Solid line for APA consistency
+  geom_point(size = 3) +  # Increase point size for readability
+  geom_errorbar(aes(ymin = mean_prop_correct - se, ymax = mean_prop_correct + se), 
+                width = 0.1, size = 0.7) +  # APA-style error bars
+  facet_wrap(~m, labeller = labeller(de = function(x) paste("Direct Effects:", x))) +  # Better facet labels
+  scale_color_manual(values = apa_colors) +  # Use defined APA color palette
+  labs(
+    x = "Direct Effects",
+    y = "Average Recovery Rates",
+    color = "Model Selection Criterion",
+    title = "Average Recovery Rates by Direct Effect, Analysis Model, and Model Selection Criterion"
+  ) +
+  ylim(0,1)+
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+
+ggsave(here("figures", "de_m_fit.jpeg"), dpi="retina", bg = "white", height=4, width=8, units="in")
+
+
+# P34 x M123 x DE x Fit
+plot_data %>% 
+  mutate(m = toupper(m),
+         p = toupper(p)) %>% 
+  filter(sim_model != "p1m1",
+         sim_model != "p2m1",
+         sim_model != "p2m2") %>% 
+  group_by(de, p, fit_index, m) %>%
+  summarise(
+    mean_prop_correct = mean(prop_correct, na.rm = TRUE),
+    se = sd(prop_correct, na.rm = TRUE) / sqrt(n())  # Standard error
+  ) %>%
+  ungroup() %>% 
+  ggplot(aes(x = de, y = mean_prop_correct, color = as.factor(fit_index), group = as.factor(fit_index))) +
+  geom_line(size = 1) +  # Solid line for APA consistency
+  geom_point(size = 3) +  # Increase point size for readability
+  geom_errorbar(aes(ymin = mean_prop_correct - se, ymax = mean_prop_correct + se), 
+                width = 0.1, size = 0.7) +  # APA-style error bars
+  facet_grid(p ~ m, labeller = label_value) +
+  scale_color_manual(values = apa_colors) +  # Use defined APA color palette
+  labs(
+    x = "Direct Effect",
+    y = "Average Recovery Rates",
+    color = "Model Selection Criterion",
+    title = "Average Recovery Rates by Direct Effect, Population and Analysis Models, and Model Selection Criterion"
+  ) +
+  ylim(0,1)+
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+
+ggsave(here("figures", "p34_m123_de_fit.jpeg"), dpi="retina", bg = "white", height=5, width=10, units="in")
+
+
+# P34 x M123 x Sep x Fit
+plot_data %>% 
+  mutate(m = toupper(m),
+         p = toupper(p)) %>% 
+  mutate(separation = toTitleCase(separation)) %>% 
+  filter(sim_model != "p1m1",
+         sim_model != "p2m1",
+         sim_model != "p2m2") %>%  
+  group_by(separation, p, fit_index, m) %>%
+  summarise(
+    mean_prop_correct = mean(prop_correct, na.rm = TRUE),
+    se = sd(prop_correct, na.rm = TRUE) / sqrt(n())  # Standard error
+  ) %>%
+  ungroup() %>% 
+  ggplot(aes(x = separation, y = mean_prop_correct, color = as.factor(fit_index), group = as.factor(fit_index))) +
+  geom_line(size = 1) +  # Solid line for APA consistency
+  geom_point(size = 3) +  # Increase point size for readability
+  geom_errorbar(aes(ymin = mean_prop_correct - se, ymax = mean_prop_correct + se), 
+                width = 0.1, size = 0.7) +  # APA-style error bars
+  facet_grid(p ~ m, labeller = label_value) +
+  scale_color_manual(values = apa_colors) +  # Use defined APA color palette
+  labs(
+    x = "Separation",
+    y = "Average Recovery Rates",
+    color = "Model Selection Criterion",
+    title = "Average Recovery Rates by Separation, Population and Analysis Models, and Model Selection Criterion"
+  ) +
+  ylim(0,1)+
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+
+ggsave(here("figures", "p34_m123_sep_fit.jpeg"), dpi="retina", bg = "white", height=5, width=10, units="in")
+
+
+
+# P34 x M123 x Model x Fit
+plot_data %>% 
+  mutate(m = toupper(m),
+         p = toupper(p)) %>% 
+  mutate(model = toTitleCase(model)) %>% 
+  filter(sim_model != "p1m1",
+         sim_model != "p2m1",
+         sim_model != "p2m2") %>%  
+  group_by(model, p, fit_index, m) %>%
+  summarise(
+    mean_prop_correct = mean(prop_correct, na.rm = TRUE),
+    se = sd(prop_correct, na.rm = TRUE) / sqrt(n())  # Standard error
+  ) %>%
+  ungroup() %>% 
+  ggplot(aes(x = model, y = mean_prop_correct, color = as.factor(fit_index), group = as.factor(fit_index))) +
+  geom_line(size = 1) +  # Solid line for APA consistency
+  geom_point(size = 3) +  # Increase point size for readability
+  geom_errorbar(aes(ymin = mean_prop_correct - se, ymax = mean_prop_correct + se), 
+                width = 0.1, size = 0.7) +  # APA-style error bars
+  facet_grid(p ~ m, labeller = label_value) +
+  scale_color_manual(values = apa_colors) +  # Use defined APA color palette
+  labs(
+    x = "Measurement Model",
+    y = "Average Recovery Rates",
+    color = "Model Selection Criterion",
+    title = "Average Recovery Rates by Measurement Model, Population and Analysis Models, and Model Selection Criterion"
+  ) +
+  ylim(0,1)+
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+
+ggsave(here("figures", "p34_m123_model_fit.jpeg"), dpi="retina", bg = "white", height=5, width=10, units="in")
+```
+
+
+## Separation x *Condition* Bar
+
+```{r}
+# N
+plot_data %>% 
+  mutate(separation = toTitleCase(separation)) %>% 
+  ggplot(aes(x = N, y = prop_correct, fill = as.factor(separation))) +
+  stat_summary(fun = mean, geom = "bar", 
+               position = position_dodge(0.9), 
+               color = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", 
+               position = position_dodge(0.9), 
+               width = 0.2, color = "black") +
+  labs(title = "Average Recovery Rate by Separation and Sample Size",
+       x = "N",
+       y = "Average Recovery Rate",
+       fill = "Separation") +
+  scale_fill_manual(values = setNames(apa_colors_2, levels(as.factor(toTitleCase(plot_data$separation))))) +
+  ylim(0,1) +
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+
+
+
+# Class Proportion
+plot_data %>% 
+  mutate(separation = toTitleCase(separation)) %>%
+  mutate(k_split = toTitleCase(k_split)) %>%
+  ggplot(aes(x = k_split, y = prop_correct, fill = as.factor(separation))) +
+  stat_summary(fun = mean, geom = "bar", 
+               position = position_dodge(0.9), 
+               color = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", 
+               position = position_dodge(0.9), 
+               width = 0.2, color = "black") +
+  labs(title = "Average Recovery Rate by Separation and Class Proportion",
+       x = "Class Proportion",
+       y = "Average Recovery Rate",
+       fill = "Separation") +
+  scale_fill_manual(values = setNames(apa_colors_2, levels(as.factor(toTitleCase(plot_data$separation))))) +
+  ylim(0,1) +
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+
+
+# DE
+plot_data %>% 
+  #filter(!is.na(de)) %>%  # Corrected filtering of NA values
+  mutate(separation = toTitleCase(separation)) %>% 
+  ggplot(aes(x = de, y = prop_correct, fill = as.factor(separation))) +
+  stat_summary(fun = mean, geom = "bar", 
+               position = position_dodge(0.9), 
+               color = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", 
+               position = position_dodge(0.9), 
+               width = 0.2, color = "black") +
+  labs(title = "Average Recovery Rate by Separation and Direct Effect",
+       x = "DE",
+       y = "Average Recovery Rate",
+       fill = "Separation") +
+  scale_fill_manual(values = setNames(apa_colors_2, levels(as.factor(toTitleCase(plot_data$separation))))) +
+  ylim(0,1) +
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+
+
+# P
+plot_data %>% 
+  mutate(separation = toTitleCase(separation)) %>% 
+  mutate(m = toupper(m),
+         p = toupper(p)) %>%
+  ggplot(aes(x = p, y = prop_correct, fill = as.factor(separation))) +
+  stat_summary(fun = mean, geom = "bar", 
+               position = position_dodge(0.9), 
+               color = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", 
+               position = position_dodge(0.9), 
+               width = 0.2, color = "black") +
+  labs(title = "Average Recovery Rate by Separation and Population Model",
+       x = "Population Model",
+       y = "Average Recovery Rate",
+       fill = "Separation") +
+  scale_fill_manual(values = setNames(apa_colors_2, levels(as.factor(toTitleCase(plot_data$separation))))) +
+  ylim(0,1) +
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+
+
+# M 
+plot_data %>% 
+  mutate(separation = toTitleCase(separation)) %>% 
+  mutate(m = toupper(m),
+         p = toupper(p)) %>%
+  ggplot(aes(x = m, y = prop_correct, fill = as.factor(separation))) +
+  stat_summary(fun = mean, geom = "bar", 
+               position = position_dodge(0.9), 
+               color = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", 
+               position = position_dodge(0.9), 
+               width = 0.2, color = "black") +
+  labs(title = "Average Recovery Rate by Separation and Analysis Model",
+       x = "Analysis Model",
+       y = "Average Recovery Rate",
+       fill = "Separation") +
+  scale_fill_manual(values = setNames(apa_colors_2, levels(as.factor(toTitleCase(plot_data$separation))))) +
+  ylim(0,1) +
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+
+
+# Measurement Model
+plot_data %>% 
+  mutate(separation = toTitleCase(separation)) %>% 
+  mutate(model = toTitleCase(model)) %>% 
+  ggplot(aes(x = model, y = prop_correct, fill = as.factor(separation))) +
+  stat_summary(fun = mean, geom = "bar", 
+               position = position_dodge(0.9), 
+               color = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", 
+               position = position_dodge(0.9), 
+               width = 0.2, color = "black") +
+  labs(title = "Average Recovery Rate by Separation and Measurement Model",
+       x = "Measurement Model",
+       y = "Average Recovery Rate",
+       fill = "Separation") +
+  scale_fill_manual(values = setNames(apa_colors_2, levels(as.factor(toTitleCase(plot_data$separation))))) +
+  ylim(0,1) +
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+```
+
+
+## Separation x Model Selection Criterion x *Condition* Lineplot
+
+```{r}
+# N
+plot_data %>% 
+  mutate(separation = toTitleCase(separation)) %>% 
+  group_by(N, fit_index, separation) %>%
+  summarise(
+    mean_prop_correct = mean(prop_correct, na.rm = TRUE),
+    se = sd(prop_correct, na.rm = TRUE) / sqrt(n())  # Standard error
+  ) %>%
+  ungroup() %>% 
+  ggplot(aes(x = N, y = mean_prop_correct, color = as.factor(fit_index), group = as.factor(fit_index))) +
+  geom_line(size = 1) +  # Solid line for APA consistency
+  geom_point(size = 3) +  # Increase point size for readability
+  geom_errorbar(aes(ymin = mean_prop_correct - se, ymax = mean_prop_correct + se), 
+                width = 0.1, size = 0.7) +  # APA-style error bars
+  facet_wrap(~separation, labeller = label_value) +  # Better facet labels
+  scale_color_manual(values = apa_colors) +  # Use defined APA color palette
+  labs(
+    x = "Sample Size (N)",
+    y = "Average Recovery Rates",
+    color = "Model Selection Criterion",
+    title = "Average Recovery Rates by Model Selection Criterion, Separation, and Sample Size"
+  ) +
+  ylim(0,1)+
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+
+# Class Proportion
+plot_data %>% 
+  mutate(separation = toTitleCase(separation)) %>% 
+  mutate(k_split = toTitleCase(k_split)) %>% 
+  group_by(k_split, fit_index, separation) %>%
+  summarise(
+    mean_prop_correct = mean(prop_correct, na.rm = TRUE),
+    se = sd(prop_correct, na.rm = TRUE) / sqrt(n())  # Standard error
+  ) %>%
+  ungroup() %>% 
+  ggplot(aes(x = k_split, y = mean_prop_correct, color = as.factor(fit_index), group = as.factor(fit_index))) +
+  geom_line(size = 1) +  # Solid line for APA consistency
+  geom_point(size = 3) +  # Increase point size for readability
+  geom_errorbar(aes(ymin = mean_prop_correct - se, ymax = mean_prop_correct + se), 
+                width = 0.1, size = 0.7) +  # APA-style error bars
+  facet_wrap(~separation, labeller = label_value) +  # Better facet labels
+  scale_color_manual(values = apa_colors) +  # Use defined APA color palette
+  labs(
+    x = "Class Proportion",
+    y = "Average Recovery Rates",
+    color = "Model Selection Criterion",
+    title = "Average Recovery Rates by Model Selection Criterion, Separation, and Class Proportion"
+  ) +
+  ylim(0,1)+
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+
+# DE
+plot_data %>% 
+  filter(!is.na(de)) %>%  # Corrected filtering of NA values
+  mutate(separation = toTitleCase(separation)) %>% 
+  group_by(de, fit_index, separation) %>%
+  summarise(
+    mean_prop_correct = mean(prop_correct, na.rm = TRUE),
+    se = sd(prop_correct, na.rm = TRUE) / sqrt(n())  # Standard error
+  ) %>%
+  ungroup() %>% 
+  ggplot(aes(x = de, y = mean_prop_correct, color = as.factor(fit_index), group = as.factor(fit_index))) +
+  geom_line(size = 1) +  # Solid line for APA consistency
+  geom_point(size = 3) +  # Increase point size for readability
+  geom_errorbar(aes(ymin = mean_prop_correct - se, ymax = mean_prop_correct + se), 
+                width = 0.1, size = 0.7) +  # APA-style error bars
+  facet_wrap(~separation, labeller = label_value) +  # Better facet labels
+  scale_color_manual(values = apa_colors) +  # Use defined APA color palette
+  labs(
+    x = "Direct Effect",
+    y = "Average Recovery Rates",
+    color = "Model Selection Criterion",
+    title = "Average Recovery Rates by Model Selection Criterion, Separation, and Direct Effect"
+  ) +
+  ylim(0,1)+
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+
+# P
+plot_data %>% 
+  mutate(m = toupper(m),
+         p = toupper(p)) %>%
+  mutate(separation = toTitleCase(separation)) %>% 
+  group_by(p, fit_index, separation) %>%
+  summarise(
+    mean_prop_correct = mean(prop_correct, na.rm = TRUE),
+    se = sd(prop_correct, na.rm = TRUE) / sqrt(n())  # Standard error
+  ) %>%
+  ungroup() %>% 
+  ggplot(aes(x = p, y = mean_prop_correct, color = as.factor(fit_index), group = as.factor(fit_index))) +
+  geom_line(size = 1) +  # Solid line for APA consistency
+  geom_point(size = 3) +  # Increase point size for readability
+  geom_errorbar(aes(ymin = mean_prop_correct - se, ymax = mean_prop_correct + se), 
+                width = 0.1, size = 0.7) +  # APA-style error bars
+  facet_wrap(~separation, labeller = label_value) +  # Better facet labels
+  scale_color_manual(values = apa_colors) +  # Use defined APA color palette
+  labs(
+    x = "Population Model",
+    y = "Average Recovery Rates",
+    color = "Model Selection Criterion",
+    title = "Average Recovery Rates by Model Selection Criterion, Separation, and Population Model"
+  ) +
+  ylim(0,1)+
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+
+
+# M
+plot_data %>% 
+  mutate(m = toupper(m),
+         p = toupper(p)) %>%
+  mutate(separation = toTitleCase(separation)) %>% 
+  group_by(m, fit_index, separation) %>%
+  summarise(
+    mean_prop_correct = mean(prop_correct, na.rm = TRUE),
+    se = sd(prop_correct, na.rm = TRUE) / sqrt(n())  # Standard error
+  ) %>%
+  ungroup() %>% 
+  ggplot(aes(x = m, y = mean_prop_correct, color = as.factor(fit_index), group = as.factor(fit_index))) +
+  geom_line(size = 1) +  # Solid line for APA consistency
+  geom_point(size = 3) +  # Increase point size for readability
+  geom_errorbar(aes(ymin = mean_prop_correct - se, ymax = mean_prop_correct + se), 
+                width = 0.1, size = 0.7) +  # APA-style error bars
+  facet_wrap(~separation, labeller = label_value) +  # Better facet labels
+  scale_color_manual(values = apa_colors) +  # Use defined APA color palette
+  labs(
+    x = "Analysis Model",
+    y = "Average Recovery Rates",
+    color = "Model Selection Criterion",
+    title = "Average Recovery Rates by Model Selection Criterion, Separation, and Analysis Model"
+  ) +
+  ylim(0,1)+
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+
+
+# Measurement Model
+plot_data %>% 
+  mutate(separation = toTitleCase(separation)) %>% 
+  mutate(model = toTitleCase(model)) %>% 
+  group_by(model, fit_index, separation) %>%
+  summarise(
+    mean_prop_correct = mean(prop_correct, na.rm = TRUE),
+    se = sd(prop_correct, na.rm = TRUE) / sqrt(n())  # Standard error
+  ) %>%
+  ungroup() %>% 
+  ggplot(aes(x = model, y = mean_prop_correct, color = as.factor(fit_index), group = as.factor(fit_index))) +
+  geom_line(size = 1) +  # Solid line for APA consistency
+  geom_point(size = 3) +  # Increase point size for readability
+  geom_errorbar(aes(ymin = mean_prop_correct - se, ymax = mean_prop_correct + se), 
+                width = 0.1, size = 0.7) +  # APA-style error bars
+  facet_wrap(~separation, labeller = label_value) +  # Better facet labels
+  scale_color_manual(values = apa_colors) +  # Use defined APA color palette
+  labs(
+    x = "Measurement Model",
+    y = "Average Recovery Rates",
+    color = "Model Selection Criterion",
+    title = "Average Recovery Rates by Model Selection Criterion, Separation, and Measurement Model"
+  ) +
+  ylim(0,1)+
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+```
+
+## HeatMap
+
+```{r, fig.width = 13, fig.height= 9}
+data <- plot_data %>% mutate(condition_combo = paste(N, k_split, model, de, sep = "_")) %>% 
+  mutate(condition_combo = fct_reorder(condition_combo, prop_correct, .fun = mean, .desc = TRUE))
+
+ggplot(data, aes(x = fit_index, y = condition_combo, fill = prop_correct)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "white", high = "blue") +
+  theme_minimal() +
+  labs(y = "Condition", fill = "Average Recovery Rate")
+```
+
+
+## N x P x M x Class Size x DE
+
+```{r, fig.width = 13, fig.height= 9}
+# P12 x M12 x N
+plot_data %>% 
+  mutate(m = toTitleCase(m),
+         p = toTitleCase(p)) %>% 
+  filter(!grepl("p3|p4", sim_model)) %>% 
+  rename(`DE` = de) %>% 
+  ggplot(aes(x = p, y = prop_correct, fill = as.factor(m))) +
+  stat_summary(fun = mean, geom = "bar", 
+               position = position_dodge(0.9), 
+               color = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", 
+               position = position_dodge(0.9), 
+               width = 0.2, color = "black") +
+  facet_wrap(~N) +
+  labs(
+    title = "Effect of Simulation Models and Sample Size",
+    x = "Population Model",
+    y = "Average Recovery Rate",
+    fill = "Analysis Model"
+  ) +
+  scale_fill_manual(values = setNames(apa_colors, levels(as.factor(tools::toTitleCase(plot_data$m))))) +
+  ylim(0,1) +
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+
+ggsave(here("figures", "p12_m12_N_bar.jpeg"), dpi="retina", bg = "white", units="in")
+
+
+custom_labeller <- labeller(
+  Sep = function(x) stringr::str_to_title(x),  
+  N = label_both,
+ `DE` = label_both
+)
+
+BIC_only %>% 
+  mutate(m = toTitleCase(m),
+         p = toTitleCase(p),
+         separation = toTitleCase(separation),
+         de = factor(case_when(
+           de == 0.405 ~ "Small",
+           de == 0.9 ~ "Medium",
+           de == 1.5 ~ "Large",
+           TRUE ~ as.character(de)  # Keeps other values unchanged
+         ),
+         levels = c("Small", "Medium", "Large"))) %>% 
+  filter(sim_model != "p1m1",
+         sim_model != "p2m1",
+         sim_model != "p2m2") %>%
+  rename(`DE` = de,
+         `Sep` = separation) %>% 
+  ggplot(aes(x = p, y = prop_correct, fill = as.factor(m))) +
+  stat_summary(fun = mean, geom = "bar", 
+               position = position_dodge(0.9), 
+               color = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", 
+               position = position_dodge(0.9), 
+               width = 0.2, color = "black") +
+  facet_grid(`DE` ~ N + `Sep`, labeller = custom_labeller) +
+  labs(
+    title = "Average Recovery Rates by Population and Analysis Models, Sample Size, Separation and Direct Effects",
+    x = "Population Model",
+    y = "Average Recovery Rate",
+    fill = "Analysis Model"
+  ) +
+  scale_fill_manual(values = setNames(analysis_model_colors, levels(as.factor(tools::toTitleCase(BIC_only$m))))) +
+  ylim(0,1) +
+  theme_bw() +  
+  theme(
+    text = element_text(family = "serif", size = 16, color = "black"),  # APA requires serif font
+    plot.title = element_text(size = 14, color = "black", face = "bold", hjust = 0.5),  # Center-align title
+    axis.title = element_text(size = 12, face = "bold"),  
+    axis.text = element_text(size = 12, color = "black"),  
+    strip.text = element_text(size = 12, face = "bold"),  # Facet labels bold
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.text = element_text(size = 11),  
+    legend.position = "bottom",  # Maintain clear placement for APA style
+    legend.direction = "horizontal"
+  )
+
+ggsave(here("figures", "p34_m123_N_sep_de_bar.jpeg"), dpi="retina", width = 12, bg = "white", units="in")
+
+```
+

@@ -1,0 +1,351 @@
+library(gt)
+library(RcppAlgos)
+
+diagnostics_table <- function(model_list) {
+  # Entropy
+  entropy <- c(model_list$summaries$Entropy,
+               rep(NA, model_list$summaries$NLatentClasses - 1))
+  
+  # 95% k-Class and k-class 95% Confidence Intervals
+  k_ci <- model_list$parameters$ci.unstandardized %>%
+    filter(paramHeader == "New.Additional.Parameters") %>%
+    unite(CI, c(low2.5, up2.5), sep = ", ", remove = TRUE) %>%
+    mutate(CI = paste0("[", CI, "]")) %>%
+    rename(kclass = est) %>%
+    dplyr::select(kclass, CI)
+  
+  # AvePPk = Average Latent Class Probabilities for Most Likely Latent Class Membership (Row) by Latent Class (Column)
+  avePPk <- tibble(avePPk = diag(model_list$class_counts$avgProbs.mostLikely))
+  
+  # mcaPk = modal class assignment proportion
+  mcaPk <- round(model_list$class_counts$mostLikely, 3) %>%
+    mutate(model = paste0("Class ", class)) %>%
+    add_column(avePPk, k_ci) %>%
+    rename(mcaPk = proportion) %>%
+    dplyr::select(model, kclass, CI, mcaPk, avePPk)
+  
+  # OCCk = odds of correct classification
+  OCCk <- mcaPk %>%
+    mutate(OCCk = round((avePPk / (1 - avePPk)) / (kclass / (1 - kclass)), 3))
+  
+  # Put everything together
+  class_df <- data.frame(OCCk)
+  
+  
+  class_table <- class_df %>%
+    gt() %>%
+    tab_header(title = "Model Classification Diagnostics for the 3-Class Solution - M1") %>%
+    cols_label(
+      model = md("*k*-Class"),
+      kclass = md("*k*-Class Proportions"),
+      CI = "95% CI",
+      mcaPk = md("*mcaPk*"),
+      avePPk = md("*AvePPk*"),
+      OCCk = md("*OCCk*")
+    ) %>%
+    sub_missing(6, missing_text = "") %>%
+    cols_align(align = "center") %>%
+    opt_align_table_header(align = "left") %>%
+    gt::tab_options(table.font.names = "Times New Roman")
+  
+  class_table
+  
+}
+
+
+simple_diagnostics_table <- function(model_list) {
+  # Entropy
+  entropy <- c(model_list$summaries$Entropy,
+               rep(NA, model_list$summaries$NLatentClasses - 1))
+  
+  # 95% k-Class and k-class 95% Confidence Intervals
+  k_ci <- model_list$class_counts$modelEstimated %>%
+    rename(kclass = proportion) %>%
+    dplyr::select(kclass)
+  
+  # AvePPk = Average Latent Class Probabilities for Most Likely Latent Class Membership (Row) by Latent Class (Column)
+  avePPk <- tibble(avePPk = diag(model_list$class_counts$avgProbs.mostLikely))
+  
+  # mcaPk = modal class assignment proportion
+  mcaPk <- round(model_list$class_counts$mostLikely, 3) %>%
+    mutate(model = paste0("Class ", class)) %>%
+    add_column(avePPk, k_ci) %>%
+    rename(mcaPk = proportion) %>%
+    dplyr::select(model, kclass, mcaPk, avePPk)
+  
+  # OCCk = odds of correct classification
+  OCCk <- mcaPk %>%
+    mutate(OCCk = round((avePPk / (1 - avePPk)) / (kclass / (1 - kclass)), 3))
+  
+  # Put everything together
+  class_df <- data.frame(OCCk, entropy)
+  
+  
+  class_table <- class_df %>%
+    gt() %>%
+    tab_header(title = "Model Classification Diagnostics") %>%
+    cols_label(
+      model = md("*k*-Class"),
+      kclass = md("*k*-Class Proportions"),
+      mcaPk = md("*mcaPk*"),
+      avePPk = md("*AvePPk*"),
+      OCCk = md("*OCCk*"),
+      entropy = md("Entropy")
+    ) %>%
+    sub_missing(6, missing_text = "") %>%
+    cols_align(align = "center") %>%
+    opt_align_table_header(align = "left") %>%
+    gt::tab_options(table.font.names = "Times New Roman")
+  
+  class_table
+  
+}
+
+
+
+class_sep <- function(model_list) {
+  # Extract table of probabilities
+  c_prob <- data.frame(model_list$parameters$probability.scale) %>%
+    mutate(LatentClass = sub("^", "Class ", LatentClass)) %>%
+    filter(category == 2) %>%
+    dplyr::select(est, LatentClass, param) %>%
+    rename(item = param, prob = est, k = LatentClass) %>%
+    mutate(# Adjust probabilities by setting a minimum of 0.01 and a maximum of 0.99
+      prob = pmin(pmax(prob, 0.01), 0.99))
+  
+  
+  # Relative class sizes
+  class_sizes <- data.frame(model_list$class_counts$modelEstimated) %>%
+    rename(size = proportion, k = class) %>%
+    mutate(k = paste0("Class ", k)) %>%
+    select(-count)
+  
+  
+  # Create the combinations of classes
+  class_combinations <- data.frame(comboGrid(
+    k1 = unique(class_sizes$k),
+    k2 = unique(class_sizes$k)
+  )) %>%
+    filter(k1 != k2) %>%
+    arrange(k1, k2)
+  
+  # Calculate pairwise comparisons for probabilities (e.g., P(u1=1|c1) / P(u1=0|c1) for each combination)
+  combined_results <- class_combinations %>%
+    rowwise() %>%
+    do({
+      pair <- .
+      k1 <- pair$k1
+      k2 <- pair$k2
+      
+      # Filter for the probabilities (P(u1=1|c1) and P(u1=0|c1))
+      data_k1_prob <- c_prob %>% filter(k == k1)
+      data_k2_prob <- c_prob %>% filter(k == k2)
+      
+      # Combine the probability data for the two profiles
+      prob_data <- data_k1_prob %>%
+        inner_join(data_k2_prob,
+                   by = "item",
+                   suffix = c("_k1", "_k2")) %>%
+        mutate(
+          prob_ratio = (prob_k1 / (1 - prob_k1)) / (prob_k2 / (1 - prob_k2)),
+          # Division formula
+          comparison = paste(k1, "vs", k2)
+        ) %>%
+        mutate(prob_ratio = round(ifelse(
+          is.infinite(prob_ratio) | is.nan(prob_ratio),
+          NA,
+          prob_ratio
+        ), 3)) %>%
+        select(item, prob_ratio, comparison)
+      
+      prob_data
+    }) %>%
+    bind_rows()
+  
+  
+  # Define a function to apply the Markdown bold formatting
+  bold_condition <- function(x) {
+    # If prob_ratio is > 5 or < 0.2, add **
+    ifelse(x > 5 | x < 0.2, paste0(round(x, 3), "**"), round(x, 3))
+  }
+  
+  # Assuming combined_results is already created as mentioned
+  formatted_results <- combined_results %>%
+    select(prob_ratio, comparison, item) %>%
+    pivot_wider(names_from = comparison, values_from = prob_ratio) %>%
+    mutate(across(where(is.numeric), ~ sapply(., bold_condition)))
+  
+  # Create a gt table
+  formatted_results %>%
+    gt() %>%
+    cols_label(item = "Item") %>%
+    fmt_number(columns = everything(), decimals = 3) %>%
+    fmt_missing(columns = everything(), missing_text = "-") %>%
+    tab_header(title = "Class Separation Table") %>%
+    tab_style(style = cell_text(weight = "bold"), locations = cells_column_labels()) %>%
+    cols_align(align = "center") %>%
+    opt_align_table_header(align = "left") %>%
+    gt::tab_options(table.font.names = "Times New Roman")
+  
+  
+}
+
+
+
+prob_table <- function(model_list) {
+  # Extract table of probabilities
+  probabilities <- data.frame(model_list$parameters$probability.scale) %>%
+    mutate(LatentClass = sub("^", "Class ", LatentClass)) %>%
+    filter(category == 2) %>%
+    dplyr::select(est, LatentClass, param) %>%
+    pivot_wider(names_from = LatentClass, values_from = est) %>%
+    relocate(param, .after = last_col()) %>%
+    rename(Items = param)
+  
+  
+  bold_condition <- function(x) {
+    ifelse(x > 0.7 | x < 0.3, paste0(x, "**"), x)
+  }
+  
+  # Apply the bold formatting condition to the table
+  formatted_table <- probabilities %>%
+    mutate(across(where(is.numeric), ~ sapply(., bold_condition)))
+  
+  
+  # Display the formatted table and percentage
+  formatted_table %>%
+    gt() %>%
+    tab_header(title = "Probabilities") %>%
+    cols_align(align = "center") %>%
+    opt_align_table_header(align = "left") %>%
+    gt::tab_options(table.font.names = "Times New Roman")
+  
+  
+}
+
+
+prob_percent <- function(model_list) {
+
+  # Extract table of probabilities
+  probabilities <- data.frame(model_list$parameters$probability.scale) %>%
+    mutate(LatentClass = sub("^", "Class ", LatentClass)) %>%
+    filter(category == 2) %>%
+    dplyr::select(est, LatentClass, param) %>%
+    pivot_wider(names_from = LatentClass, values_from = est) %>%
+    relocate(param, .after = last_col()) %>%
+    rename(Items = param)
+
+
+  # Count the number of probabilities > 0.7 or < 0.3 and calculate the percentage
+  count_valid_probs <- probabilities %>%
+    summarise(across(where(is.numeric), ~ sum(. > 0.7 |
+                                                . < 0.3))) %>%
+    gather() %>%
+    summarise(valid_count = sum(value)) %>%
+    pull(valid_count)
+  
+  total_probs <- nrow(probabilities) * (ncol(probabilities) - 1)  # excluding 'Items' column
+  percentage_valid <- (count_valid_probs / total_probs) * 100
+  
+  # Output the count and percentage of values > 0.7 or < 0.3
+  cat("Number of probabilities greater than 0.7 or less than 0.3:",
+      count_valid_probs,
+      "\n")
+  cat("Total Probabilities:",
+      total_probs,
+      "\n")
+  cat(
+    "Percentage of probabilities greater than 0.7 or less than 0.3:",
+    round(percentage_valid, 2),
+    "%\n"
+  )
+  
+  
+}
+
+sep_percent <- function(model_list) {
+
+  # Extract table of probabilities
+  c_prob <- data.frame(model_list$parameters$probability.scale) %>%
+    mutate(LatentClass = sub("^", "Class ", LatentClass)) %>%
+    filter(category == 2) %>%
+    dplyr::select(est, LatentClass, param) %>%
+    rename(item = param, prob = est, k = LatentClass) %>%
+    mutate(# Adjust probabilities by setting a minimum of 0.01 and a maximum of 0.99
+      prob = pmin(pmax(prob, 0.01), 0.99))
+  
+  
+  # Relative class sizes
+  class_sizes <- data.frame(model_list$class_counts$modelEstimated) %>%
+    rename(size = proportion, k = class) %>%
+    mutate(k = paste0("Class ", k)) %>%
+    select(-count)
+  
+  
+  # Create the combinations of classes
+  class_combinations <- data.frame(comboGrid(
+    k1 = unique(class_sizes$k),
+    k2 = unique(class_sizes$k)
+  )) %>%
+    filter(k1 != k2) %>%
+    arrange(k1, k2)
+  
+  # Calculate pairwise comparisons for probabilities (e.g., P(u1=1|c1) / P(u1=0|c1) for each combination)
+  combined_results <- class_combinations %>%
+    rowwise() %>%
+    do({
+      pair <- .
+      k1 <- pair$k1
+      k2 <- pair$k2
+      
+      # Filter for the probabilities (P(u1=1|c1) and P(u1=0|c1))
+      data_k1_prob <- c_prob %>% filter(k == k1)
+      data_k2_prob <- c_prob %>% filter(k == k2)
+      
+      # Combine the probability data for the two profiles
+      prob_data <- data_k1_prob %>%
+        inner_join(data_k2_prob,
+                   by = "item",
+                   suffix = c("_k1", "_k2")) %>%
+        mutate(
+          prob_ratio = (prob_k1 / (1 - prob_k1)) / (prob_k2 / (1 - prob_k2)),
+          # Division formula
+          comparison = paste(k1, "vs", k2)
+        ) %>%
+        mutate(prob_ratio = round(ifelse(
+          is.infinite(prob_ratio) | is.nan(prob_ratio),
+          NA,
+          prob_ratio
+        ), 3)) %>%
+        select(item, prob_ratio, comparison)
+      
+      prob_data
+    }) %>%
+    bind_rows()
+
+  # Filter values where OR > 5 or OR < 0.2
+  valid_comparisons <- combined_results %>%
+    filter(prob_ratio > 5 | prob_ratio < 0.2)
+  
+  # Count of valid comparisons
+  valid_count <- nrow(valid_comparisons)
+  
+  # Total number of comparisons
+  total_count <- nrow(combined_results)
+  
+  # Calculate the percentage
+  percentage <- (valid_count / total_count) * 100
+  
+  # Output results in a user-friendly format
+  cat("Number of OR > 5 or OR < 0.2:",
+      valid_count,
+      "\n")
+  cat("Total Number of ORs:",
+      total_count,
+      "\n")      
+  cat("Percentage (OR > 5 or OR < 0.2):",
+      round(percentage, 2),
+      "%\n")
+
+  
+}

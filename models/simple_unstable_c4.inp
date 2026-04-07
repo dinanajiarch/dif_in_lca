@@ -1,0 +1,17 @@
+TITLE:
+Simple, Unstable, 4-Class
+DATA:
+FILE = "C:/Users/dnajiarch/Box/Dissertation/detect_dif/models/
+simple_unstable_c4.dat"; 
+VARIABLE:
+NAMES = u1 u2 u3 u4 u5 u6 c; 
+ MISSING=.;
+ categorical = u1-u6;  
+usevar = u1-u6;
+classes = c(4);
+ANALYSIS:
+estimator = mlr; 
+    type = mixture;
+    starts = 500 100;
+OUTPUT:
+sampstat;

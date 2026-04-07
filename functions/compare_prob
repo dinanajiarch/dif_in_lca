@@ -1,0 +1,168 @@
+extract_prob <- function(c_model, conx_model) {
+  # Extract thresholds for c model
+  thresh_p1m1 <- data.frame(c = c_model$parameters$unstandardized) %>%
+    filter(c.paramHeader == "Thresholds") %>%
+    mutate(
+      class1 = sub("^","C", c.LatentClass),
+      c.param = str_remove(c.param, "\\$1"),
+      class_m1 = str_c(class1, c.param)
+    )
+  
+  prob_p1m1 <- data.frame(c = c_model$parameters$probability.scale) %>% 
+    filter(c.category == 2) %>% 
+    mutate(
+      class1 = sub("^","C", c.LatentClass),
+      c.param = str_remove(c.param, "\\$1"),
+      class_m1 = str_c(class1, c.param)
+    ) %>% 
+    rename("c.prob" = "c.est")
+  
+  # Extract thresholds for conx model
+  thresh_p1m2 <- data.frame(conx = conx_model$parameters$unstandardized) %>%
+    filter(conx.paramHeader == "Thresholds") %>%
+    mutate(
+      class2 = sub("^","C", conx.LatentClass),
+      conx.param = str_remove(conx.param, "\\$1"),
+      class_m2 = str_c(class2, conx.param)
+    ) %>% 
+    arrange(conx.LatentClass)
+  
+  prob_p1m2 <- data.frame(conx = conx_model$parameters$probability.scale) %>% 
+    filter(conx.category == 2) %>% 
+    mutate(
+      class2 = sub("^","C", conx.LatentClass),
+      conx.param = str_remove(conx.param, "\\$1"),
+      class_m2 = str_c(class2, conx.param)
+    ) %>% 
+    rename("conx.prob" = "conx.est")  %>% 
+    arrange(conx.LatentClass)
+  
+  # Combine data frames
+  thresh_total <- cbind(thresh_p1m1, 
+                        c.prob = prob_p1m1$c.prob, 
+                        thresh_p1m2, 
+                        conx.prob = prob_p1m2$conx.prob) %>%  
+    select(class_m1, class1, c.param, c.est, c.se, conx.est, conx.se, c.prob, conx.prob) %>% 
+    mutate(across(where(is.character), as.factor))
+  
+  # Define the DIF_data function
+  DIF_data <- thresh_total %>% 
+    mutate(
+      prob_diff = abs(c.prob - conx.prob)
+    )
+  
+  return(DIF_data)
+}
+
+
+DIFmap_apa <- function(DIF_plot_data, title) {
+
+add_labels <- DIF_plot_data %>% 
+  select(class1, c.param, prob_diff) %>% 
+  rename(param = c.param) %>% 
+    mutate(items = fct_inorder(param),
+         class = fct_inorder(class1)) %>% 
+  mutate(items = factor(items, labels = item_labels),
+         class = factor(class, labels = class_labels)) 
+
+
+  add_labels %>% 
+    ggplot(aes(y = 1, x = items, fill = prob_diff)) +
+    geom_tile() +
+    scale_fill_gradient2(
+      low = "white",
+      high = "red",
+      limit = c(0,1)
+    ) + 
+    theme_minimal() +
+    theme(legend.title = element_blank(),
+         axis.text.y = element_blank(),  # Remove x-axis labels
+         axis.ticks.y = element_blank(),
+         strip.text.y.left = element_text(angle = 0, hjust = 0)) +
+    labs(title = title, subtitle = "Probability Difference Heat Map", x="", y="") +
+    theme(
+    text = element_text(family = "sans", size = 12),
+    legend.text = element_text(family = "sans", size = 12),
+    axis.text.x = element_text(vjust = 1),
+    plot.subtitle = element_text(face = "italic", size = 15),
+    plot.title = element_text(size = 15)
+  )+
+    geom_text(aes(label = round(prob_diff, 2)), color = "black") +
+    facet_wrap(~class, scales = "free_x", ncol = 1)
+}
+
+
+DIFmap <- function(DIF_plot_data) {
+
+  DIF_plot_data %>% 
+    ggplot(aes(y = 1, x = c.param, fill = prob_diff)) +
+    geom_tile() +
+    scale_fill_gradient2(
+      low = "white",
+      high = "red",
+      limit = c(0,1)
+    ) + 
+    theme_minimal() +
+    theme(legend.title = element_blank(),
+         axis.text.y = element_blank(),  # Remove x-axis labels
+         axis.ticks.y = element_blank(),
+         strip.text.y.left = element_text(angle = 0, hjust = 0)) +
+   # labs(title = title, subtitle = "Probability Difference Heat Map", x="", y="") +
+    theme(
+    text = element_text(family = "sans", size = 12),
+    legend.text = element_text(family = "sans", size = 12),
+    axis.text.x = element_text(vjust = 1),
+    plot.subtitle = element_text(face = "italic", size = 15),
+    plot.title = element_text(size = 15)
+  )+
+    geom_text(aes(label = round(prob_diff, 2)), color = "black") +
+    facet_wrap(~class1, scales = "free_x", ncol = 1)
+}
+
+
+
+prob_diff_values <- function(x) {
+
+prob_diff_values <- x %>% 
+  select(class1, c.param, prob_diff) %>% 
+  rename(param = c.param) %>% 
+    mutate(items = fct_inorder(param),
+         class = fct_inorder(class1)) %>% 
+  mutate(items = factor(items, labels = item_labels),
+         class = factor(class, labels = class_labels)) %>% 
+  select(class, items, prob_diff) %>% 
+  pivot_wider(names_from = items, values_from = prob_diff) 
+return(prob_diff_values)
+}
+
+
+compare_prob <- function(c_model, conx_model) {
+  # Extract probability data from c model
+  c_prob <- as.data.frame(c_model[["savedata"]]) %>% 
+    select(C) %>% 
+    rename(cN = C)
+  
+  # Extract probability data from conx model
+  conx_prob <- as.data.frame(conx_model[["savedata"]]) %>%
+    select(C) %>% 
+    rename(conxN = C)
+  
+  # Merge probability data
+  merge <- cbind(c_prob, conx_prob)
+  
+  # Calculate counts of mismatched probabilities
+  mismatch_counts <- merge %>% 
+    filter(cN != conxN) %>% 
+    count()
+  
+  # Create contingency table
+  cont_table <- table(merge$cN, merge$conxN)
+  
+  # Create proportion table
+  prop_table <- round(prop.table(cont_table, 1), 3)
+  
+  # Return results
+  return(list(mismatch_counts = mismatch_counts,
+              contingency_table = cont_table,
+              proportion_table = prop_table))
+}

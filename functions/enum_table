@@ -1,0 +1,136 @@
+enum_table <- function(model_list) {
+
+rows <- length(model_list)
+
+enum_extract <- LatexSummaryTable(
+  model_list,
+  keepCols = c(
+    "Title",
+    "Parameters",
+    "LL",
+    "BIC",
+    "aBIC",
+    "BLRT_PValue",
+    "T11_VLMR_PValue",
+    "Observations"
+  ),
+  sortBy = "Title"
+)
+
+
+allFit <- enum_extract %>%
+  mutate(CAIC = -2 * LL + Parameters * (log(Observations) + 1)) %>%
+  mutate(AWE = -2 * LL + 2 * Parameters * (log(Observations) + 1.5)) %>%
+  mutate(SIC = -.5 * BIC) %>%
+  mutate(expSIC = exp(SIC - max(SIC))) %>%
+  mutate(BF = exp(SIC - lead(SIC))) %>%
+  mutate(cmPk = expSIC / sum(expSIC)) %>%
+  dplyr::select(1:5, 9:10, 6:7, 13, 14) %>%
+  arrange(Parameters)
+  
+allFit %>%
+  gt() %>%
+  tab_header(title = "Table 1", subtitle = md("*Model Fit Summary Table*")) %>%
+  cols_label(
+    Title = "Classes",
+    Parameters = md("Par"),
+    LL = md("*LL*"),
+    T11_VLMR_PValue = "VLMR",
+    BLRT_PValue = "BLRT",
+    BF = md("BF"),
+    cmPk = md("*cmPk*")
+  ) %>%
+  tab_footnote(
+    footnote = md(
+      "*Note.* Par = Parameters; *LL* = model log likelihood;
+BIC = Bayesian information criterion;
+aBIC = sample size adjusted BIC; CAIC = consistent Akaike information criterion;
+AWE = approximate weight of evidence criterion;
+BLRT = bootstrapped likelihood ratio test p-value;
+VLMR = Vuong-Lo-Mendell-Rubin adjusted likelihood ratio test p-value;
+*cmPk* = approximate correct model probability."
+    )
+  ) %>%
+  cols_align(align = "center") %>%
+  opt_table_font(font = "Times New Roman") %>%
+  opt_align_table_header(align = "left") %>%
+  tab_options(
+    heading.title.font.size = px(16),
+    heading.subtitle.font.size = px(16),
+    row_group.as_column = TRUE,
+    stub.border.width = 0,
+    heading.border.bottom.color = "black",
+    column_labels.border.top.color = "black",
+    column_labels.border.bottom.color = "black",
+    table_body.border.bottom.color = "black",
+    table.border.bottom.color = "white",
+    table.border.top.color = "white",
+    table.background.color = "white"
+  ) %>%
+  tab_style(
+    style = list(
+      cell_borders(
+        sides = c("top", "bottom"),
+        color = "white",
+        weight = px(1)
+      ),
+      cell_text(align = "center"),
+      cell_fill(color = "white", alpha = NULL)
+    ),
+    locations = cells_body(columns = everything(),
+                           rows = everything())
+  ) %>% 
+  tab_options(column_labels.font.weight = "bold") %>%
+  fmt_number(c(3:7),
+             decimals = 2) %>%
+  sub_missing(1:11,
+              missing_text = "--") %>%
+  fmt(
+    c(8:9, 11),
+    fns = function(x)
+      ifelse(x < .001, "&lt;.001",
+             scales::number(x, accuracy = .01))
+  ) %>%
+  fmt(
+    10,
+    fns = function (x)
+      ifelse(x > 100, ">100",
+             scales::number(x, accuracy = .01))
+  ) %>%  
+  tab_style(
+    style = list(
+      cell_text(weight = "bold")
+      ),
+    locations = list(cells_body(
+     columns = BIC,
+     row = BIC == min(BIC[c(1:rows)]) # Change this to the number of classes you are evaluating
+    ),
+    cells_body(
+     columns = aBIC,
+     row = aBIC == min(aBIC[1:rows])
+    ),
+    cells_body(
+     columns = CAIC,
+     row = CAIC == min(CAIC[1:rows])
+    ),
+    cells_body(
+     columns = AWE,
+     row = AWE == min(AWE[1:rows])
+    ),
+    cells_body(
+     columns = cmPk,
+     row =  cmPk == max(cmPk[1:rows])
+     ),    
+    cells_body(
+     columns = BF,
+     row =  BF > 10),
+    cells_body( 
+     columns =  T11_VLMR_PValue,
+     row =  ifelse(T11_VLMR_PValue < .05 & lead(T11_VLMR_PValue) > .05, T11_VLMR_PValue < .05, NA)),
+    cells_body(
+     columns =  BLRT_PValue,
+     row =  ifelse(BLRT_PValue < .05 & lead(BLRT_PValue) > .05, BLRT_PValue < .05, NA))
+  )
+)
+
+}
